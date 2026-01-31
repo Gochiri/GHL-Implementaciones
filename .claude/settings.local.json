@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if not exist \"c:\\\\Users\\\\germa\\\\OneDrive\\\\Documents\\\\GHL Implementaciones\\\\.claude\" mkdir \"c:\\\\Users\\\\germa\\\\OneDrive\\\\Documents\\\\GHL Implementaciones\\\\.claude\")",
+      "Bash(npm install)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout:*)"
+    ]
+  }
+}

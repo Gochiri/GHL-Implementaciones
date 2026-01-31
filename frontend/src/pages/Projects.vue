@@ -1,0 +1,364 @@
+<script setup>
+import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { PROJECT_STATUSES, getStatusLabel, getStatusClass, healProjectStatus } from '../utils/status-utils.js'
+
+const router = useRouter()
+const projects = ref([])
+const searchQuery = ref('')
+const filterStatus = ref('all')
+
+const statuses = [
+  { id: 'all', label: 'Todos' },
+  ...PROJECT_STATUSES
+]
+
+onMounted(() => {
+  const saved = localStorage.getItem('projects')
+  if (saved) {
+    let rawProjects = JSON.parse(saved)
+    let needsSave = false
+
+    projects.value = rawProjects.map(p => {
+      const { healedProject, wasHealed } = healProjectStatus(p)
+      if (wasHealed) needsSave = true
+      return healedProject
+    })
+
+    if (needsSave) {
+      localStorage.setItem('projects', JSON.stringify(projects.value))
+    }
+  }
+})
+
+const updateProjectStatus = (id, newStatus) => {
+  const index = projects.value.findIndex(p => p.id === id)
+  if (index !== -1) {
+    projects.value[index].status = newStatus
+    localStorage.setItem('projects', JSON.stringify(projects.value))
+  }
+}
+
+const filteredProjects = computed(() => {
+  return projects.value.filter(p => {
+    const matchesSearch = p.name.toLowerCase().includes(searchQuery.value.toLowerCase())
+    const matchesFilter = filterStatus.value === 'all' || p.status === filterStatus.value
+    return matchesSearch && matchesFilter
+  }).sort((a, b) => new Date(b.date) - new Date(a.date))
+})
+
+const getProjectStatusLabel = (statusId) => getStatusLabel(statusId)
+
+const getProjectStatusClass = (statusId) => getStatusClass(statusId)
+
+const deleteProject = (id) => {
+  if (confirm('¿Estás seguro de que deseas eliminar este proyecto?')) {
+    projects.value = projects.value.filter(p => p.id !== id)
+    localStorage.setItem('projects', JSON.stringify(projects.value))
+  }
+}
+</script>
+
+<template>
+  <div class="projects-hub fadeIn">
+    <header class="hub-header">
+      <div class="header-main">
+        <h1>Gestión de Proyectos</h1>
+        <p>Hub centralizado para el seguimiento y ejecución de implementaciones GHL.</p>
+      </div>
+      <router-link to="/analyzer" class="btn btn-primary">
+        <span>+</span> Nuevo Lead
+      </router-link>
+    </header>
+
+    <div class="hub-filters card">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input 
+          v-model="searchQuery" 
+          type="text" 
+          placeholder="Buscar cliente..." 
+          class="premium-input"
+        />
+      </div>
+      <div class="filter-group">
+        <label>Estado:</label>
+        <div class="status-filters">
+          <button 
+            v-for="s in statuses" 
+            :key="s.id"
+            class="filter-btn"
+            :class="{ active: filterStatus === s.id }"
+            @click="filterStatus = s.id"
+          >
+            {{ s.label }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="projects-grid">
+      <div v-for="p in filteredProjects" :key="p.id" class="project-card card">
+        <div class="card-header">
+          <div class="client-info">
+            <span class="date">{{ p.date }}</span>
+            <h3>{{ p.name }}</h3>
+          </div>
+          <div class="status-actions">
+            <select 
+              :value="p.status" 
+              class="status-select" 
+              :class="getProjectStatusClass(p.status)"
+              @change="e => updateProjectStatus(p.id, e.target.value)"
+            >
+              <option v-for="s in statuses.slice(1)" :key="s.id" :value="s.id">
+                {{ s.label }}
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="metric">
+            <span class="label">Complejidad</span>
+            <div class="complexity-bar">
+              <div class="inner-bar" :style="{ width: (p.analysis?.complexity * 10 || 50) + '%' }"></div>
+            </div>
+          </div>
+          <div class="metric">
+            <span class="label">Nicho</span>
+            <span class="value">{{ p.analysis?.niche || 'N/A' }}</span>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <button class="action-btn" @click="router.push(`/project/${p.id}`)">
+            🛠️ Estructura
+          </button>
+          <button class="action-btn" @click="router.push(`/proposal/${p.id}`)">
+            📄 Propuesta
+          </button>
+          <button class="action-btn icon-btn" @click="deleteProject(p.id)">
+            🗑️
+          </button>
+        </div>
+      </div>
+
+      <div v-if="filteredProjects.length === 0" class="empty-state card">
+        <p>No se encontraron proyectos que coincidan con los filtros.</p>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.projects-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.hub-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-main h1 {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.header-main p {
+  color: var(--text-muted);
+}
+
+.hub-filters {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px !important;
+}
+
+.search-box {
+  position: relative;
+  width: 300px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+.premium-input {
+  width: 100%;
+  padding: 12px 12px 12px 40px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  color: #fff;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.status-filters {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-btn {
+  padding: 8px 16px;
+  border-radius: 100px;
+  border: 1px solid var(--glass-border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.filter-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 24px;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.client-info .date {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.client-info h3 {
+  font-size: 20px;
+  margin-top: 4px;
+}
+
+.status-select {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background-image: none;
+  appearance: none;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.status-select:focus {
+  outline: none;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+}
+
+.status-analysis { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.2); }
+.status-created { background: rgba(139, 92, 246, 0.1); color: #a78bfa; border-color: rgba(139, 92, 246, 0.2); }
+.status-proposal { background: rgba(245, 158, 11, 0.1); color: #fbbf24; border-color: rgba(245, 158, 11, 0.2); }
+.status-completed { background: rgba(16, 185, 129, 0.1); color: #34d399; border-color: rgba(16, 185, 129, 0.2); }
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metric .label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.complexity-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.inner-bar {
+  height: 100%;
+  background: linear-gradient(to right, var(--primary), var(--accent));
+  box-shadow: 0 0 10px var(--primary);
+}
+
+.card-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.action-btn {
+  flex: 1;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.icon-btn {
+  flex: 0 0 44px;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 64px !important;
+  color: var(--text-muted);
+}
+
+.fadeIn {
+  animation: fadeIn 0.6s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+</style>
