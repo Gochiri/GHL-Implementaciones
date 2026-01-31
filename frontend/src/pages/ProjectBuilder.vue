@@ -246,19 +246,41 @@ const copyDocumentation = () => {
 
 const renderMarkdown = (text) => {
   if (!text) return ''
-  // Improved basic markdown parsing
-  return text
+  
+  let html = text
+    // Escapar HTML básico para evitar inyecciones pero permitir nuestro renderizado
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    
+    // Headers
     .replace(/^# (.*$)/gim, '<h1>$1</h1>')
     .replace(/^## (.*$)/gim, '<h2>$1</h2>')
     .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    
+    // Bold / Italic
     .replace(/\*\*\*(.*)\*\*\*/gim, '<strong><em>$1</em></strong>')
     .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
     .replace(/\*(.*)\*/gim, '<em>$1</em>')
+    
+    // Code blocks
+    .replace(/```(.*?)\n([\s\S]*?)```/gim, '<pre class="code-block">$2</pre>')
+    
+    // Inline code
+    .replace(/`(.*?)`/gim, '<code>$1</code>')
+    
+    // Lists
     .replace(/^\- (.*$)/gim, '<li>$1</li>')
     .replace(/^\* (.*$)/gim, '<li>$1</li>')
-    .replace(/```javascript/gim, '<pre class="code-block">')
-    .replace(/```/gim, '</pre>')
+    
+    // Wrap lists (very basic approach: look for consecutive <li>)
+    .replace(/(<li>.*<\/li>)/gim, '<ul>$1</ul>')
+    .replace(/<\/ul>\s*<ul>/gim, '')
+    
+    // Line breaks
     .replace(/\n/gim, '<br>')
+
+  return html
 }
 
 const sendToClickUp = async () => {

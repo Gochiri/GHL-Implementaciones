@@ -119,15 +119,25 @@ const deleteProject = (id) => {
         </div>
 
         <div class="card-body">
-          <div class="metric">
-            <span class="label">Complejidad</span>
-            <div class="complexity-bar">
-              <div class="inner-bar" :style="{ width: (p.analysis?.complexity * 10 || 50) + '%' }"></div>
+          <div class="metrics-grid">
+            <div class="metric">
+              <div class="metric-header">
+                <span class="label">Complejidad</span>
+                <span class="metric-value">{{ p.complexity || p.analysis?.complexity || 5 }}/10</span>
+              </div>
+              <div class="complexity-bar">
+                <div class="inner-bar" :style="{ width: ((p.complexity || p.analysis?.complexity || 5) * 10) + '%' }"></div>
+              </div>
+            </div>
+            <div class="metric">
+              <span class="label">Nicho / Industria</span>
+              <span class="value-badge">{{ p.niche || p.analysis?.niche || 'N/A' }}</span>
             </div>
           </div>
-          <div class="metric">
-            <span class="label">Nicho</span>
-            <span class="value">{{ p.analysis?.niche || 'N/A' }}</span>
+          
+          <div v-if="p.analysis?.implementationType" class="implementation-type">
+            <span class="label">Tipo:</span>
+            <span class="value">{{ p.analysis.implementationType }}</span>
           </div>
         </div>
 
@@ -245,6 +255,11 @@ const deleteProject = (id) => {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.project-card:hover {
+  transform: translateY(-5px);
 }
 
 .card-header {
@@ -292,7 +307,13 @@ const deleteProject = (id) => {
 .card-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
 }
 
 .metric {
@@ -301,9 +322,23 @@ const deleteProject = (id) => {
   gap: 8px;
 }
 
-.metric .label {
+.metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.metric-value {
   font-size: 12px;
+  font-weight: 600;
+  color: var(--primary-light);
+}
+
+.metric .label {
+  font-size: 11px;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .complexity-bar {
@@ -319,6 +354,35 @@ const deleteProject = (id) => {
   box-shadow: 0 0 10px var(--primary);
 }
 
+.value-badge {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #fff;
+  border: 1px solid var(--glass-border);
+  display: inline-block;
+  width: fit-content;
+}
+
+.implementation-type {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.implementation-type .label {
+  color: var(--text-muted);
+}
+
+.implementation-type .value {
+  color: var(--primary-light);
+  font-weight: 500;
+}
+
 .card-actions {
   display: flex;
   gap: 12px;
@@ -327,23 +391,30 @@ const deleteProject = (id) => {
 
 .action-btn {
   flex: 1;
-  padding: 10px;
+  padding: 12px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--glass-border);
-  border-radius: 10px;
+  border-radius: 12px;
   color: #fff;
   font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .action-btn:hover {
   background: var(--primary);
   border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(229, 72, 77, 0.3);
 }
 
 .icon-btn {
-  flex: 0 0 44px;
+  flex: 0 0 48px;
 }
 
 .empty-state {

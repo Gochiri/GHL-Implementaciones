@@ -45,15 +45,16 @@
 - [x] Prompt de OpenAI ahora extrae clientName y niche
 - [x] Frontend captura y guarda clientName y niche
 - [x] "Generar Proyecto" ahora llama a `/api/project-structure` para crear semanas/tareas
+- [x] **ProjectBuilder:** Normalización de datos recibidos de la API (IDs para semanas y tareas) para asegurar visualización correcta.
+- [x] **ProposalGenerator / ProjectBuilder:** Mejora en el renderizado de Markdown/HTML para blueprints técnicos y propuestas.
+- [x] **Lista de Proyectos:** Se muestra numéricamente la complejidad y de forma más prominente el nicho.
 
 ---
 
 ## Mejoras Pendientes
 
-- [ ] Verificar que ProjectBuilder muestre correctamente la estructura generada
-- [ ] Propuesta muestra HTML raw - debe renderizarse correctamente
-- [ ] Probar integración ClickUp end-to-end
-- [ ] Mostrar complejidad y nicho en lista de proyectos
-- [ ] Migrar de localStorage a base de datos
-- [ ] Agregar tests básicos
+- [ ] Probar integración ClickUp end-to-end (requiere API Token real)
+- [ ] Migrar de localStorage a base de datos (SQLite/PostgreSQL)
+- [ ] Agregar tests básicos para `ai-analyzer.js` y `clickup-service.js`
+- [ ] Autenticación de usuarios
 

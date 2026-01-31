@@ -1,0 +1,8 @@
+{
+    "active": true,
+    "current_iteration": 1,
+    "max_iterations": 10,
+    "completion_promise": "COMPLETE",
+    "original_prompt": "Fix the pending bugs and improvements in .planning/mejoras.md: 1) ProjectBuilder visualization, 2) ProposalGenerator HTML rendering, 3) Project list complexity/niche display.",
+    "started_at": "2026-01-31T20:44:57Z"
+}

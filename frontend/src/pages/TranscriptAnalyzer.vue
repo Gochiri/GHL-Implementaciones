@@ -273,7 +273,22 @@ const saveAndRedirect = async () => {
       const projectIndex = projects.findIndex(p => p.id === projectId)
 
       if (projectIndex !== -1) {
-        projects[projectIndex].weeks = structure.weeks
+        // Normalizar estructura para el frontend
+        const normalizedWeeks = structure.weeks.map((week, wIdx) => ({
+          id: wIdx + 1,
+          name: week.name,
+          collapsed: false,
+          tasks: (week.tasks || []).map((task, tIdx) => ({
+            id: (wIdx + 1) * 100 + (tIdx + 1),
+            name: task.name,
+            hours: task.estimatedHours || task.hours || 1,
+            completed: false,
+            description: task.description || '',
+            metadata: task.metadata || {}
+          }))
+        }))
+
+        projects[projectIndex].weeks = normalizedWeeks
         projects[projectIndex].projectType = structure.projectType || analysis.value.implementationType
         projects[projectIndex].status = 'created'
         localStorage.setItem('projects', JSON.stringify(projects))
