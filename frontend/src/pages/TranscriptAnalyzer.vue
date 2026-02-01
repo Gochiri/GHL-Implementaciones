@@ -108,9 +108,10 @@ const analyzeTranscript = async () => {
   
   try {
     if (useRealAPI.value) {
-      // Try real API
+      // Try real API - returns { ...analysis, id }
       const result = await api.analyze(transcript.value)
       analysis.value = {
+        id: result.id, // Store the project ID
         clientName: result.clientName || result.nombre_cliente || 'Cliente',
         niche: result.niche || result.nicho || 'N/A',
         painPoints: result.painPoints || result.dolores || [],
@@ -119,40 +120,27 @@ const analyzeTranscript = async () => {
         objectives: result.objectives || result.objetivos || [],
         currentSituation: result.currentSituation || result.situacion_actual || ''
       }
+      
+      // Save global pointer
+      localStorage.setItem('last-project-id', result.id)
     } else {
       throw new Error('Using mock data')
     }
   } catch (error) {
     console.warn('API error, using mock data:', error.message)
-    // Fallback to mock data
+    // Fallback to mock data with a dummy ID
+    const dummyId = 'proj-' + Date.now()
     analysis.value = {
+      id: dummyId,
       painPoints: mockPainPoints,
       complexity: 7,
       implementationType: 'Automatización + CRM Setup',
       objectives: mockObjectives,
       currentSituation: 'El cliente maneja procesos manuales con pérdida potencial de leads.'
     }
+    localStorage.setItem('last-project-id', dummyId)
   }
   
-  // Save to projects collection for multi-project support
-  const savedProjects = localStorage.getItem('projects')
-  const projects = savedProjects ? JSON.parse(savedProjects) : []
-  
-  const newProject = {
-    id: 'proj-' + Date.now(),
-    name: analysis.value.clientName || 'Cliente ' + (projects.length + 1),
-    niche: analysis.value.niche || 'N/A',
-    date: new Date().toISOString().split('T')[0],
-    complexity: analysis.value.complexity,
-    status: 'analysis',
-    analysis: { ...analysis.value },
-    weeks: [] // Will be populated in Project Builder
-  }
-  
-  projects.unshift(newProject)
-  localStorage.setItem('projects', JSON.stringify(projects))
-  localStorage.setItem('last-project-id', newProject.id)
-
   // Mark analysis as complete
   isAnalyzing.value = false
   analysisComplete.value = true
@@ -177,7 +165,8 @@ const requestNextQuestion = async () => {
   isTyping.value = true
   try {
     if (useRealAPI.value) {
-      const result = await api.hormozi(analysis.value, previousAnswers.value)
+      // Pass the project ID so backend can save answers
+      const result = await api.hormozi(analysis.value, previousAnswers.value, analysis.value.id)
       isTyping.value = false
       if (result.ready || result.listo) {
         isReady.value = true
@@ -263,43 +252,18 @@ const saveAndRedirect = async () => {
 
   // Generate project structure via API
   try {
-    const structure = await api.projectStructure(analysis.value, previousAnswers.value)
-
-    // Update project with generated structure
-    const projectId = localStorage.getItem('last-project-id')
-    if (projectId && structure.weeks) {
-      const savedProjects = localStorage.getItem('projects')
-      const projects = savedProjects ? JSON.parse(savedProjects) : []
-      const projectIndex = projects.findIndex(p => p.id === projectId)
-
-      if (projectIndex !== -1) {
-        // Normalizar estructura para el frontend
-        const normalizedWeeks = structure.weeks.map((week, wIdx) => ({
-          id: wIdx + 1,
-          name: week.name,
-          collapsed: false,
-          tasks: (week.tasks || []).map((task, tIdx) => ({
-            id: (wIdx + 1) * 100 + (tIdx + 1),
-            name: task.name,
-            hours: task.estimatedHours || task.hours || 1,
-            completed: false,
-            description: task.description || '',
-            metadata: task.metadata || {}
-          }))
-        }))
-
-        projects[projectIndex].weeks = normalizedWeeks
-        projects[projectIndex].projectType = structure.projectType || analysis.value.implementationType
-        projects[projectIndex].status = 'created'
-        localStorage.setItem('projects', JSON.stringify(projects))
-      }
+    // This call will trigger the backend to generate and save the weeks to SQLite
+    const structure = await api.projectStructure(analysis.value, previousAnswers.value, analysis.value.id)
+    
+    if (structure) {
+      console.log('✅ Estructura generada y guardada en BD.')
     }
   } catch (error) {
     console.error('Error generating project structure:', error)
-    // Continue anyway - user can manually add structure
   }
 
-  router.push('/project')
+  // Redirect to Project Builder - it will load from the ID
+  router.push(`/project/${analysis.value.id}`)
 }
 
 const getContextResponse = (message) => {

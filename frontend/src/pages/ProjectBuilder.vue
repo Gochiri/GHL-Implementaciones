@@ -30,60 +30,73 @@ const getSettings = () => {
 
 const loadProject = async () => {
   const projectId = route.params.id
-  const savedProjects = localStorage.getItem('projects')
-  allProjects.value = savedProjects ? JSON.parse(savedProjects) : []
   
   if (!projectId) {
-    // Check for last active project or show selector
     const lastId = localStorage.getItem('last-project-id')
-    if (lastId && allProjects.value.some(p => p.id === lastId)) {
+    if (lastId) {
       router.replace(`/project/${lastId}`)
-    } else if (allProjects.value.length > 0) {
-      showSelector.value = true
+    } else {
+      const projects = await api.getProjects()
+      allProjects.value = projects
+      if (projects.length > 0) {
+        showSelector.value = true
+      }
     }
     return
   }
 
-  const project = allProjects.value.find(p => p.id === projectId)
-  if (project) {
-    showSelector.value = false
-    localStorage.setItem('last-project-id', project.id)
-    clientName.value = project.name || project.clientName || 'Sin Nombre'
-    
-    if (project.weeks && project.weeks.length > 0) {
-      weeks.value = JSON.parse(JSON.stringify(project.weeks))
-    } else {
-      // Fallback or empty state if just analyzed
-      weeks.value = []
+  try {
+    const project = await api.getProject(projectId)
+    if (project) {
+      showSelector.value = false
+      localStorage.setItem('last-project-id', project.id)
+      clientName.value = project.name || project.clientName || 'Sin Nombre'
+      
+      // Normalize weeks from backend (if they are simple objects, convert to frontend format)
+      if (project.weeks && project.weeks.length > 0) {
+        weeks.value = project.weeks.map((w, wIdx) => ({
+          id: w.id || wIdx + 1,
+          name: w.name,
+          collapsed: false,
+          tasks: (w.tasks || []).map((t, tIdx) => ({
+            id: t.id || (wIdx + 1) * 100 + (tIdx + 1),
+            name: t.name,
+            hours: t.hours || 1,
+            completed: t.completed || false,
+            description: t.description || '',
+            metadata: t.metadata || {}
+          }))
+        }))
+      } else {
+        weeks.value = []
+      }
+      
+      if (project.projectType) projectType.value = project.projectType
+      projectAnalysis.value = project.analysis // Store analysis for later calls
     }
-    
-    if (project.projectType) projectType.value = project.projectType
-  } else {
-    // If projectId exists but project not found, redirect or show error
+  } catch (error) {
     console.error('Project not found:', projectId)
     showSelector.value = true
   }
 }
 
-// Watch for route changes (e.g. clicking a different project in dashboard)
-watch(() => route.params.id, (newId) => {
-  if (newId) loadProject()
-})
+const projectAnalysis = ref(null)
 
-const saveProjectState = (newStatus = null) => {
+const saveProjectState = async (newStatus = null) => {
   const projectId = route.params.id
   if (!projectId) return
 
-  const savedProjects = localStorage.getItem('projects')
-  const projects = savedProjects ? JSON.parse(savedProjects) : []
-  
-  const index = projects.findIndex(p => p.id === projectId)
-  if (index !== -1) {
-    projects[index].name = clientName.value
-    projects[index].weeks = weeks.value
-    projects[index].projectType = projectType.value
-    if (newStatus) projects[index].status = newStatus
-    localStorage.setItem('projects', JSON.stringify(projects))
+  const data = {
+    name: clientName.value,
+    weeks: weeks.value,
+    projectType: projectType.value
+  }
+  if (newStatus) data.status = newStatus
+
+  try {
+    await api.updateProject(projectId, data)
+  } catch (error) {
+    console.error('Error saving project state:', error)
   }
 }
 
@@ -171,17 +184,7 @@ const getTotalTasks = () => {
 
 const approveProject = async () => {
   const projectId = route.params.id
-  const savedProjects = localStorage.getItem('projects')
-  const projects = savedProjects ? JSON.parse(savedProjects) : []
-  const projectIdx = projects.findIndex(p => p.id === projectId)
-  
-  if (projectIdx === -1) return
-  
-  const project = projects[projectIdx]
-  const answers = project.analysis?.chatHistory?.map(h => ({ 
-    question: h.question, 
-    answer: h.answer 
-  })) || []
+  if (!projectId || !projectAnalysis.value) return
   
   const settings = getSettings() || {}
   const clickupConfig = {
@@ -206,15 +209,14 @@ const approveProject = async () => {
   
   try {
     console.log('🚀 Aprobando proyecto y generando documentación...')
-    const result = await api.approveProject(project.analysis, projectData, answers, clickupConfig)
+    const result = await api.approveProject(projectAnalysis.value, projectData, [], clickupConfig, projectId)
     
     if (result.success) {
       projectDocumentation.value = result.documentation
       clickupSuccess.value = true
       
-      // Update with ClickUp details
+      // Update with ClickUp details if available
       if (result.clickup && result.clickup.tasks) {
-        // Simple mapping based on name for this demo
         weeks.value.forEach(w => {
           w.tasks.forEach(t => {
             const remote = result.clickup.tasks.find(rt => rt.name === t.name)
@@ -226,8 +228,8 @@ const approveProject = async () => {
         })
       }
       
-      saveProjectState('created') // Persist ClickUp IDs and update status
-      alert('🚀 ¡Proyecto aprobado y exportado exitosamente! Se ha generado el Blueprint Técnico en ClickUp.')
+      await saveProjectState('approved')
+      alert('🚀 ¡Proyecto aprobado y exportado exitosamente! Se ha generado el Blueprint Técnico.')
     } else {
       throw new Error(result.error || 'Error desconocido')
     }

@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
+import { v4 as uuidv4 } from 'uuid';
 import {
   analyzeTranscript,
   askHormoziQuestion,
@@ -11,6 +12,7 @@ import {
 } from './services/ai-analyzer.js';
 import { createClickUpProject, updateTaskStatus } from './services/clickup-service.js';
 import { extractTextFromFile } from './services/file-service.js';
+import db from './db.js';
 
 dotenv.config();
 
@@ -31,6 +33,115 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// --- PROJECT MANAGEMENT ENDPOINTS ---
+
+// Get all projects
+app.get('/api/projects', (req, res) => {
+  try {
+    const projects = db.prepare('SELECT * FROM projects ORDER BY updatedAt DESC').all();
+    // Parse JSON fields
+    const parsed = projects.map(p => ({
+      ...p,
+      analysis: p.analysis ? JSON.parse(p.analysis) : null,
+      weeks: p.weeks ? JSON.parse(p.weeks) : [],
+      answers: p.answers ? JSON.parse(p.answers) : []
+    }));
+    res.json(parsed);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single project
+app.get('/api/projects/:id', (req, res) => {
+  try {
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    res.json({
+      ...project,
+      analysis: project.analysis ? JSON.parse(project.analysis) : null,
+      weeks: project.weeks ? JSON.parse(project.weeks) : [],
+      answers: project.answers ? JSON.parse(project.answers) : []
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create project
+app.post('/api/projects', (req, res) => {
+  try {
+    const { name, clientName, niche, analysis, weeks, status } = req.body;
+    const id = uuidv4();
+
+    const stmt = db.prepare(`
+      INSERT INTO projects (id, name, clientName, niche, analysis, weeks, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      id,
+      name || clientName || 'Nuevo Proyecto',
+      clientName,
+      niche,
+      JSON.stringify(analysis || null),
+      JSON.stringify(weeks || []),
+      status || 'analysis'
+    );
+
+    res.json({ id, success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update project
+app.put('/api/projects/:id', (req, res) => {
+  try {
+    const { name, clientName, niche, complexity, status, analysis, weeks, answers, documentation } = req.body;
+
+    const fields = [];
+    const values = [];
+
+    if (name !== undefined) { fields.push('name = ?'); values.push(name); }
+    if (clientName !== undefined) { fields.push('clientName = ?'); values.push(clientName); }
+    if (niche !== undefined) { fields.push('niche = ?'); values.push(niche); }
+    if (complexity !== undefined) { fields.push('complexity = ?'); values.push(complexity); }
+    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+    if (analysis !== undefined) { fields.push('analysis = ?'); values.push(JSON.stringify(analysis)); }
+    if (weeks !== undefined) { fields.push('weeks = ?'); values.push(JSON.stringify(weeks)); }
+    if (answers !== undefined) { fields.push('answers = ?'); values.push(JSON.stringify(answers)); }
+    if (documentation !== undefined) { fields.push('documentation = ?'); values.push(documentation); }
+
+    fields.push('updatedAt = CURRENT_TIMESTAMP');
+
+    if (fields.length === 1) return res.json({ success: true, message: 'No changes' });
+
+    const stmt = db.prepare(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`);
+    const result = stmt.run(...values, req.params.id);
+
+    if (result.changes === 0) return res.status(404).json({ error: 'Project not found' });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Update project error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete project
+app.delete('/api/projects/:id', (req, res) => {
+  try {
+    db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- AI & EXTERNAL SERVICES ---
+
 // File upload and text extraction
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
@@ -47,17 +158,31 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
 // Analyze transcript - extracts pain points, complexity, scope
 app.post('/api/analyze', async (req, res) => {
-  console.log('📥 Received /api/analyze request');
   try {
     const { transcript } = req.body;
-    console.log('📝 Transcript length:', transcript?.length || 0);
     if (!transcript) {
       return res.status(400).json({ error: 'Transcript is required' });
     }
-    console.log('🤖 Calling OpenAI...');
     const analysis = await analyzeTranscript(transcript);
-    console.log('✅ Analysis complete');
-    res.json(analysis);
+
+    // Auto-create project record
+    const id = uuidv4();
+    const stmt = db.prepare(`
+      INSERT INTO projects (id, name, clientName, niche, complexity, analysis, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      id,
+      analysis.clientName || 'Nuevo Proyecto',
+      analysis.clientName,
+      analysis.niche,
+      analysis.complexity,
+      JSON.stringify(analysis),
+      'analysis'
+    );
+
+    res.json({ ...analysis, id });
   } catch (error) {
     console.error('Analysis error:', error);
     res.status(500).json({ error: error.message });
@@ -67,8 +192,15 @@ app.post('/api/analyze', async (req, res) => {
 // Hormozi-style questioning
 app.post('/api/hormozi', async (req, res) => {
   try {
-    const { context, previousAnswers } = req.body;
+    const { context, previousAnswers, projectId } = req.body;
     const response = await askHormoziQuestion(context, previousAnswers);
+
+    // Optional: save answers to project if projectId provided
+    if (projectId && previousAnswers) {
+      db.prepare('UPDATE projects SET answers = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(JSON.stringify(previousAnswers), projectId);
+    }
+
     res.json(response);
   } catch (error) {
     console.error('Hormozi error:', error);
@@ -79,8 +211,14 @@ app.post('/api/hormozi', async (req, res) => {
 // Generate project structure
 app.post('/api/project-structure', async (req, res) => {
   try {
-    const { analysis, answers } = req.body;
+    const { analysis, answers, projectId } = req.body;
     const structure = await generateProjectStructure(analysis, answers);
+
+    if (projectId) {
+      db.prepare('UPDATE projects SET weeks = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(JSON.stringify(structure.weeks), 'created', projectId);
+    }
+
     res.json(structure);
   } catch (error) {
     console.error('Project structure error:', error);
@@ -91,8 +229,14 @@ app.post('/api/project-structure', async (req, res) => {
 // Generate quotation
 app.post('/api/quotation', async (req, res) => {
   try {
-    const { analysis, projectStructure } = req.body;
+    const { analysis, projectStructure, projectId } = req.body;
     const quotation = await generateQuotation(analysis, projectStructure);
+
+    if (projectId) {
+      db.prepare('UPDATE projects SET status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
+        .run('proposal', projectId);
+    }
+
     res.json(quotation);
   } catch (error) {
     console.error('Quotation error:', error);
@@ -100,32 +244,31 @@ app.post('/api/quotation', async (req, res) => {
   }
 });
 
-// Project Approval Flow: Generates documentation and exports to ClickUp
+// Project Approval Flow
 app.post('/api/project/approve', async (req, res) => {
   try {
-    const { analysis, projectStructure, answers, clickupConfig } = req.body;
+    const { analysis, projectStructure, answers, clickupConfig, projectId } = req.body;
 
-    console.log('🚀 Project Approved! Generating technical documentation...');
-
-    // 1. Generate detailed GHL Blueprint
     const documentation = await generateGHLDocumentation(analysis, projectStructure, answers);
 
-    // 2. Prepare data for ClickUp
     const projectWithDoc = {
       ...projectStructure,
       clientName: analysis?.clientName || projectStructure?.clientName || 'Nuevo Proyecto GHL',
       documentation
     };
 
-    // 3. Fallback for ClickUp Config
     const isPlaceholder = (val) => !val || val.includes('***') || val.length < 5;
     const finalConfig = {
       apiToken: isPlaceholder(clickupConfig?.apiToken) ? process.env.CLICKUP_API_TOKEN : clickupConfig.apiToken,
       spaceId: isPlaceholder(clickupConfig?.spaceId) ? process.env.CLICKUP_SPACE_ID : clickupConfig.spaceId
     };
 
-    console.log('📦 Exporting to ClickUp with blueprint...');
     const result = await createClickUpProject(projectWithDoc, finalConfig);
+
+    if (projectId) {
+      db.prepare('UPDATE projects SET documentation = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(documentation, 'approved', projectId);
+    }
 
     res.json({
       success: true,
@@ -140,12 +283,10 @@ app.post('/api/project/approve', async (req, res) => {
   }
 });
 
-// Create project in ClickUp
+// ClickUp Endpoints (keeping them for direct use if needed)
 app.post('/api/clickup/create', async (req, res) => {
   try {
     const { projectData, clickupConfig } = req.body;
-
-    // Fallback to .env if not provided or if it's a placeholder
     const isPlaceholder = (val) => !val || val.includes('***') || val.length < 5;
 
     const finalConfig = {
@@ -153,83 +294,52 @@ app.post('/api/clickup/create', async (req, res) => {
       spaceId: isPlaceholder(clickupConfig?.spaceId) ? process.env.CLICKUP_SPACE_ID : clickupConfig.spaceId
     };
 
-    if (!finalConfig.apiToken || !finalConfig.spaceId) {
-      return res.status(400).json({ error: 'ClickUp API Token and Space ID are required (not found in .env or request)' });
-    }
-
     const result = await createClickUpProject(projectData, finalConfig);
     res.json(result);
   } catch (error) {
-    console.error('ClickUp error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.put('/api/clickup/task/:id/status', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, apiToken } = req.body;
-
-    const finalToken = apiToken || process.env.CLICKUP_API_TOKEN;
-
-    if (!finalToken) {
-      return res.status(400).json({ error: 'ClickUp API Token is required' });
-    }
-
-    const result = await updateTaskStatus(id, status, finalToken);
-    res.json({ success: true, result });
-  } catch (error) {
-    console.error('ClickUp update error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// In-memory store for GHL webhooks (simulating a database for this demo)
-const ghlWebhooks = [];
-
-// GHL Webhook receiver
+// Webhook Receiver
 app.post('/api/webhook/ghl', async (req, res) => {
   try {
-    console.log('📬 GHL Webhook received:', JSON.stringify(req.body, null, 2));
     const { contact, pipeline_stage, message } = req.body;
+    const id = Date.now().toString();
 
-    const webhookData = {
-      id: Date.now().toString(),
-      contact: contact || { name: 'Lead Desconocido' },
-      stage: pipeline_stage || 'Review',
-      message: message || '',
-      receivedAt: new Date().toISOString(),
-      status: 'pending'
-    };
+    const stmt = db.prepare(`
+      INSERT INTO webhooks (id, contact, stage, message)
+      VALUES (?, ?, ?, ?)
+    `);
 
-    ghlWebhooks.unshift(webhookData); // Add to start
-    if (ghlWebhooks.length > 50) ghlWebhooks.pop(); // Keep last 50
+    stmt.run(id, JSON.stringify(contact || { name: 'Lead Desconocido' }), pipeline_stage || 'Review', message || '');
 
-    res.json({
-      success: true,
-      message: 'GHL Webhook processed successfully',
-      id: webhookData.id
-    });
+    res.json({ success: true, id });
   } catch (error) {
-    console.error('❌ GHL webhook error:', error);
+    console.error('❌ Webhook error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Get recent GHL webhooks
 app.get('/api/webhooks', (req, res) => {
-  res.json(ghlWebhooks);
+  try {
+    const webhooks = db.prepare('SELECT * FROM webhooks ORDER BY receivedAt DESC LIMIT 50').all();
+    const parsed = webhooks.map(w => ({
+      ...w,
+      contact: JSON.parse(w.contact)
+    }));
+    res.json(parsed);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Test OpenAI connection
+// OpenAI & ClickUp Connection Tests
 app.post('/api/openai/test', async (req, res) => {
   try {
     const { apiKey, model } = req.body;
     const finalKey = apiKey || process.env.OPENAI_API_KEY;
-
-    if (!finalKey) {
-      return res.status(400).json({ success: false, error: 'No API key configured' });
-    }
+    if (!finalKey) return res.status(400).json({ success: false, error: 'No API key configured' });
 
     const OpenAI = (await import('openai')).default;
     const testClient = new OpenAI({ apiKey: finalKey });
@@ -240,66 +350,29 @@ app.post('/api/openai/test', async (req, res) => {
       max_completion_tokens: 10
     });
 
-    res.json({
-      success: true,
-      message: 'Conexión exitosa',
-      model: model || process.env.OPENAI_MODEL || 'gpt-5.2',
-      response: response.choices[0].message.content
-    });
+    res.json({ success: true, message: 'Conexión exitosa', response: response.choices[0].message.content });
   } catch (error) {
-    console.error('OpenAI test error:', error);
     res.status(400).json({ success: false, error: error.message });
   }
 });
 
-// Test ClickUp connection
 app.post('/api/clickup/test', async (req, res) => {
   try {
     const { apiToken } = req.body;
     const token = apiToken || process.env.CLICKUP_API_TOKEN;
-
-    if (!token) {
-      return res.status(400).json({ success: false, error: 'No API token configured' });
-    }
+    if (!token) return res.status(400).json({ success: false, error: 'No API token configured' });
 
     const axios = (await import('axios')).default;
-
     const response = await axios.get('https://api.clickup.com/api/v2/user', {
       headers: { 'Authorization': token }
     });
 
-    res.json({
-      success: true,
-      message: 'Conexión exitosa',
-      user: response.data.user.username
-    });
+    res.json({ success: true, message: 'Conexión exitosa', user: response.data.user.username });
   } catch (error) {
-    console.error('ClickUp test error:', error);
     res.status(400).json({ success: false, error: error.response?.data?.err || error.message });
   }
 });
 
-// Debug endpoint to find Space IDs
-app.get('/api/clickup/spaces', async (req, res) => {
-  try {
-    const apiToken = process.env.CLICKUP_API_TOKEN;
-    if (!apiToken) return res.status(400).json({ error: 'No API Token in .env' });
-
-    const { getTeams, getSpaces } = await import('./services/clickup-service.js');
-    const teams = await getTeams(apiToken);
-
-    const spacesWithTeams = await Promise.all(teams.map(async (team) => {
-      const spaces = await getSpaces(apiToken, team.id);
-      return { teamName: team.name, teamId: team.id, spaces };
-    }));
-
-    res.json(spacesWithTeams);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Test backend configuration status
 app.get('/api/config/status', (req, res) => {
   res.json({
     openai: !!process.env.OPENAI_API_KEY,
@@ -311,3 +384,5 @@ app.get('/api/config/status', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
+
+export default app;

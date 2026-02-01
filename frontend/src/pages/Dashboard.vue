@@ -30,57 +30,69 @@ const activityFeed = ref([])
 
 onMounted(async () => {
   try {
-    const webhooks = await api.getWebhooks()
-    ghlLeads.value = webhooks
+    // 1. Fetch Projects from Backend
+    let projects = await api.getProjects()
     
-    // Load real projects and proposals
-    const savedProjects = localStorage.getItem('projects')
-    if (savedProjects) {
-      let rawProjects = JSON.parse(savedProjects)
-      let needsSave = false
-      
-      recentAnalyses.value = rawProjects.map(p => {
-        const { healedProject, wasHealed } = healProjectStatus(p)
-        if (wasHealed) needsSave = true
-        return healedProject
-      }).slice(0, 5) // Most recent 5
-
-      if (needsSave) {
-        localStorage.setItem('projects', JSON.stringify(rawProjects))
+    // Migration helper: If DB is empty but localStorage has data, sync once
+    const savedLocal = localStorage.getItem('projects')
+    if (projects.length === 0 && savedLocal) {
+      console.log('🔄 First run: Syncing localStorage to Backend...')
+      const localData = JSON.parse(savedLocal)
+      for (const p of localData) {
+        await api.createProject({
+          name: p.name,
+          clientName: p.clientName || p.name,
+          niche: p.analysis?.niche,
+          analysis: p.analysis,
+          weeks: p.weeks,
+          status: p.status
+        })
       }
+      projects = await api.getProjects()
+      // Optional: localStorage.clear() or mark as synced
+    }
 
-      // Calculate real stats
-      const totalAnalyses = rawProjects.length
-      const activeProjects = rawProjects.filter(p => p.status === 'created' || p.status === 'proposal').length
-      const completedProjects = rawProjects.filter(p => p.status === 'completed').length
-      const proposalProjects = rawProjects.filter(p => p.status === 'proposal').length
-      
-      stats.value[0].value = proposalProjects.toString()
-      stats.value[1].value = totalAnalyses.toString()
-      stats.value[2].value = activeProjects.toString()
-      if (totalAnalyses > 0) {
-        const rate = Math.round((completedProjects / totalAnalyses) * 100)
-        stats.value[3].value = rate + '%'
-      } else {
-        stats.value[3].value = '0%'
+    recentAnalyses.value = projects.map(p => {
+      const { healedProject } = healProjectStatus(p)
+      return {
+        ...healedProject,
+        client: healedProject.clientName || healedProject.name,
+        date: new Date(healedProject.createdAt || Date.now()).toLocaleDateString()
       }
-      
-      // Generate some dynamic activity from projects
-      activityFeed.value = rawProjects.slice(0, 3).map((p, i) => ({
-        id: i,
-        type: 'status',
-        user: 'Sistema',
-        project: p.name,
-        action: `actualizado a estado "${getStatusLabel(p.status)}"`,
-        time: 'Reciente'
-      }))
+    }).slice(0, 5)
+
+    // 2. Fetch Webhooks
+    const webhooks = await api.getWebhooks()
+    ghLeads.value = webhooks
+
+    // 3. Calculate stats from all projects
+    const totalAnalyses = projects.length
+    const activeProjects = projects.filter(p => p.status === 'created' || p.status === 'proposal').length
+    const completedProjects = projects.filter(p => p.status === 'completed').length
+    const proposalProjects = projects.filter(p => p.status === 'proposal').length
+    
+    stats.value[0].value = proposalProjects.toString()
+    stats.value[1].value = totalAnalyses.toString()
+    stats.value[2].value = activeProjects.toString()
+    if (totalAnalyses > 0) {
+      const rate = Math.round((completedProjects / totalAnalyses) * 100)
+      stats.value[3].value = rate + '%'
     } else {
-      // Empty state stats
-      stats.value.forEach(s => s.value = '0')
       stats.value[3].value = '0%'
     }
+
+    // 4. Generate dynamic activity
+    activityFeed.value = projects.slice(0, 3).map((p, i) => ({
+      id: i,
+      type: 'status',
+      user: 'Sistema',
+      project: p.name,
+      action: `está en estado "${getStatusLabel(p.status)}"`,
+      time: 'Update'
+    }))
+
   } catch (error) {
-    console.error('Error fetching data:', error)
+    console.error('Error fetching dashboard data:', error)
   }
 })
 

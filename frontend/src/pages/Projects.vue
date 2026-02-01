@@ -13,29 +13,31 @@ const statuses = [
   ...PROJECT_STATUSES
 ]
 
-onMounted(() => {
-  const saved = localStorage.getItem('projects')
-  if (saved) {
-    let rawProjects = JSON.parse(saved)
-    let needsSave = false
-
-    projects.value = rawProjects.map(p => {
-      const { healedProject, wasHealed } = healProjectStatus(p)
-      if (wasHealed) needsSave = true
-      return healedProject
+onMounted(async () => {
+  try {
+    const data = await api.getProjects()
+    projects.value = data.map(p => {
+      const { healedProject } = healProjectStatus(p)
+      return {
+        ...healedProject,
+        date: new Date(healedProject.createdAt || Date.now()).toLocaleDateString()
+      }
     })
-
-    if (needsSave) {
-      localStorage.setItem('projects', JSON.stringify(projects.value))
-    }
+  } catch (error) {
+    console.error('Error fetching projects:', error)
   }
 })
 
-const updateProjectStatus = (id, newStatus) => {
-  const index = projects.value.findIndex(p => p.id === id)
-  if (index !== -1) {
-    projects.value[index].status = newStatus
-    localStorage.setItem('projects', JSON.stringify(projects.value))
+const updateProjectStatus = async (id, newStatus) => {
+  try {
+    await api.updateProject(id, { status: newStatus })
+    const index = projects.value.findIndex(p => p.id === id)
+    if (index !== -1) {
+      projects.value[index].status = newStatus
+    }
+  } catch (error) {
+    console.error('Error updating status:', error)
+    alert('Error al actualizar el estado')
   }
 }
 
@@ -51,10 +53,15 @@ const getProjectStatusLabel = (statusId) => getStatusLabel(statusId)
 
 const getProjectStatusClass = (statusId) => getStatusClass(statusId)
 
-const deleteProject = (id) => {
+const deleteProject = async (id) => {
   if (confirm('¿Estás seguro de que deseas eliminar este proyecto?')) {
-    projects.value = projects.value.filter(p => p.id !== id)
-    localStorage.setItem('projects', JSON.stringify(projects.value))
+    try {
+      await api.deleteProject(id)
+      projects.value = projects.value.filter(p => p.id !== id)
+    } catch (error) {
+      console.error('Error deleting project:', error)
+      alert('Error al eliminar el proyecto')
+    }
   }
 }
 </script>

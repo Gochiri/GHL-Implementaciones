@@ -38,56 +38,61 @@ const projectTypes = [
   { value: 'custom', label: 'Custom Development', weeks: 6, price: 3500 }
 ]
 
-const loadProposalData = () => {
+const loadProposalData = async () => {
   const projectId = route.params.id
-  const savedProjects = localStorage.getItem('projects')
-  allProjects.value = savedProjects ? JSON.parse(savedProjects) : []
   
   if (!projectId) {
     const lastId = localStorage.getItem('last-project-id')
-    if (lastId && allProjects.value.some(p => p.id === lastId)) {
+    if (lastId) {
       router.replace(`/proposal/${lastId}`)
-    } else if (allProjects.value.length > 0) {
-      showSelector.value = true
+    } else {
+      const projects = await api.getProjects()
+      allProjects.value = projects
+      if (projects.length > 0) {
+        showSelector.value = true
+      }
     }
     return
   }
 
-  const project = allProjects.value.find(p => p.id === projectId)
-  if (project) {
-    showSelector.value = false
-    localStorage.setItem('last-project-id', project.id)
-    clientInfo.value.name = project.name || project.clientName || 'Sin Nombre'
-    
-    if (project.analysis) {
-      if (project.analysis.clientEmail) clientInfo.value.email = project.analysis.clientEmail
-      if (project.analysis.contactName) clientInfo.value.contact = project.analysis.contactName
+  try {
+    const project = await api.getProject(projectId)
+    if (project) {
+      showSelector.value = false
+      localStorage.setItem('last-project-id', project.id)
+      clientInfo.value.name = project.name || project.clientName || 'Sin Nombre'
       
-      if (project.analysis.painPoints && proposalData.value.painPoints.length === 0) {
-        proposalData.value.painPoints = project.analysis.painPoints.map(p => p.text || p)
+      if (project.analysis) {
+        if (project.analysis.clientEmail) clientInfo.value.email = project.analysis.clientEmail
+        if (project.analysis.contactName) clientInfo.value.contact = project.analysis.contactName
+        
+        if (project.analysis.painPoints && proposalData.value.painPoints.length === 0) {
+          proposalData.value.painPoints = project.analysis.painPoints.map(p => p.text || p)
+        }
+        if (project.analysis.objectives && proposalData.value.solutions.length === 0) {
+          proposalData.value.solutions = project.analysis.objectives.map(o => o.objetivo || o.objective || o)
+        }
       }
-      if (project.analysis.objectives && proposalData.value.solutions.length === 0) {
-        proposalData.value.solutions = project.analysis.objectives.map(o => o.objetivo || o.objective || o)
+      
+      if (project.projectType) {
+        const typeInfo = projectTypes.find(t => t.value === project.projectType)
+        if (typeInfo && proposalData.value.investment === 0) {
+          proposalData.value.investment = typeInfo.price
+          proposalData.value.timeline = `${typeInfo.weeks} semanas`
+        }
       }
-    }
-    
-    if (project.projectType) {
-      const typeInfo = projectTypes.find(t => t.value === project.projectType)
-      if (typeInfo && proposalData.value.investment === 0) {
-        proposalData.value.investment = typeInfo.price
-        proposalData.value.timeline = `${typeInfo.weeks} semanas`
+      
+      if (project.weeks && project.weeks.length > 0) {
+        proposalData.value.timeline = `${project.weeks.length} semanas`
       }
-    }
-    
-    if (project.weeks && project.weeks.length > 0) {
-      proposalData.value.timeline = `${project.weeks.length} semanas`
-    }
 
-    if (project.status === 'created' || project.status === 'analysis' || !project.status) {
-      project.status = 'proposal'
-      localStorage.setItem('projects', JSON.stringify(allProjects.value))
+      // Sync status if needed
+      if (project.status === 'created' || project.status === 'analysis' || !project.status) {
+        await api.updateProject(projectId, { status: 'proposal' })
+      }
     }
-  } else {
+  } catch (error) {
+    console.error('Error loading project for proposal:', error)
     showSelector.value = true
   }
 }
@@ -96,7 +101,7 @@ const generateWithAI = async () => {
   const projectId = route.params.id
   if (!projectId) return
 
-  const project = allProjects.value.find(p => p.id === projectId)
+  const project = await api.getProject(projectId)
   if (!project) return
 
   isGenerating.value = true
@@ -104,7 +109,7 @@ const generateWithAI = async () => {
     const quotation = await api.quotation(project.analysis, {
       weeks: project.weeks,
       projectType: project.projectType
-    })
+    }, projectId)
 
     if (quotation) {
       if (quotation.painPoints) proposalData.value.painPoints = quotation.painPoints
@@ -118,6 +123,10 @@ const generateWithAI = async () => {
           ...quotation.roi
         }
       }
+      
+      // Update backend with new proposal data if needed (optional since quotation call might have done it)
+      await api.updateProject(projectId, { status: 'proposal' })
+      
       alert('✨ Propuesta optimizada con IA exitosamente')
     }
   } catch (error) {
