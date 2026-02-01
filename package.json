@@ -7,7 +7,7 @@
     ],
     "scripts": {
         "dev": "concurrently \"npm run dev --workspace=api\" \"npm run dev --workspace=frontend\"",
-        "build": "npm run build --workspace=frontend && mv frontend/dist ./dist"
+        "build": "cd frontend && npm install && npm run build && cd .. && rm -rf public && mv frontend/dist public"
     },
     "devDependencies": {
         "concurrently": "^8.2.2"
