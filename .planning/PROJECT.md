@@ -40,38 +40,20 @@
 
 ```
 GHL-Implementaciones/
-├── backend/
-│   ├── server.js              # Express server, todos los endpoints
+├── api/                       # Backend (Express) optimizado para Vercel
+│   ├── index.js               # Entry point (antes server.js)
 │   ├── services/
-│   │   ├── ai-analyzer.js     # Prompts y llamadas a OpenAI
-│   │   ├── clickup-service.js # Integración ClickUp
-│   │   └── file-service.js    # Parseo de PDF/Word
-│   ├── .env                   # API keys (NO commitear)
+│   ├── db.js
 │   └── package.json
 │
-├── frontend/
+├── frontend/                  # Frontend (Vue + Vite)
 │   ├── src/
-│   │   ├── App.vue            # Layout principal con sidebar
-│   │   ├── api.js             # Cliente API para backend
-│   │   ├── main.js            # Entry point
-│   │   ├── pages/
-│   │   │   ├── Dashboard.vue          # Métricas y lista de proyectos
-│   │   │   ├── TranscriptAnalyzer.vue # Análisis de transcripciones (1200+ líneas)
-│   │   │   ├── ProjectBuilder.vue     # Editor de estructura de proyecto
-│   │   │   ├── Projects.vue           # Lista/Kanban de proyectos
-│   │   │   ├── ProposalGenerator.vue  # Generador de propuestas
-│   │   │   ├── KanbanBoard.vue        # Vista Kanban
-│   │   │   └── Settings.vue           # Configuración de API keys
-│   │   └── utils/
-│   │       └── status-utils.js        # Estados de proyecto y helpers
 │   └── package.json
 │
-├── .planning/                  # Documentación GSD
-│   ├── PROJECT.md             # Este documento
-│   ├── mejoras.md             # Bugs y mejoras identificadas
-│   └── codebase/              # Análisis del código (7 archivos)
-│
-└── templates/                  # Plantillas de propuestas
+├── vercel.json                # Configuración de despliegue
+├── package.json               # Monorepo root con scripts de build
+├── .planning/
+└── templates/
 ```
 
 ## Flujo de Datos
