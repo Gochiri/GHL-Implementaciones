@@ -169,6 +169,19 @@ app.post('/api/analyze', async (req, res) => {
     if (!transcript) {
       return res.status(400).json({ error: 'Transcript is required' });
     }
+
+    // Debug: log which key source we're using
+    const envKey = process.env.OPENAI_API_KEY;
+    const finalKey = apiKey || envKey;
+    console.log(`[Analyze] Using API key from: ${apiKey ? 'frontend' : 'env'}, key exists: ${!!finalKey}, length: ${finalKey?.length || 0}`);
+
+    if (!finalKey) {
+      return res.status(400).json({
+        error: 'No OpenAI API key configured. Set OPENAI_API_KEY in Vercel environment variables or provide it in Settings.',
+        debug: { envKeyExists: !!envKey, frontendKeyProvided: !!apiKey }
+      });
+    }
+
     const analysis = await analyzeTranscript(transcript, apiKey);
 
     // Auto-create project record
@@ -356,7 +369,7 @@ app.post('/api/openai/test', async (req, res) => {
     const testClient = new OpenAI({ apiKey: finalKey });
 
     const response = await testClient.chat.completions.create({
-      model: model || 'gpt-5.2',
+      model: model || 'gpt-4o-mini',
       messages: [{ role: 'user', content: 'Responde solo: OK' }],
       max_completion_tokens: 10
     });
@@ -385,10 +398,14 @@ app.post('/api/clickup/test', async (req, res) => {
 });
 
 app.get('/api/config/status', (req, res) => {
+  const openaiKey = process.env.OPENAI_API_KEY || '';
   res.json({
-    openai: !!process.env.OPENAI_API_KEY,
+    openai: !!openaiKey,
+    openai_key_length: openaiKey.length,
+    openai_key_prefix: openaiKey ? openaiKey.substring(0, 7) + '...' : 'NOT SET',
     clickup: !!process.env.CLICKUP_API_TOKEN,
-    model: process.env.OPENAI_MODEL || 'gpt-5.2'
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    node_env: process.env.NODE_ENV || 'not set'
   });
 });
 
