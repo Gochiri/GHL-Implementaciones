@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 
-const AI_MODEL = process.env.OPENAI_MODEL || 'gpt-4-turbo';
+const AI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 const ANALYZER_PROMPT = `Eres un experto analista de negocios y consultor de GoHighLevel. Tu objetivo es analizar transcripciones de ventas para identificar:
 1. Nombre del cliente y nicho.
