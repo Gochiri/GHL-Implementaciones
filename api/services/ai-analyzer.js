@@ -1,5 +1,89 @@
 import OpenAI from 'openai';
 
+const AI_MODEL = process.env.OPENAI_MODEL || 'gpt-4-turbo';
+
+const ANALYZER_PROMPT = `Eres un experto analista de negocios y consultor de GoHighLevel. Tu objetivo es analizar transcripciones de ventas para identificar:
+1. Nombre del cliente y nicho.
+2. Dolores principales (pain points) y su severidad (high, medium, low).
+3. Objetivos del cliente.
+4. Complejidad de la implementación (1-10).
+5. Tipo de implementación sugerida (Setup, Full Build, Automation, etc.).
+6. Situación actual.
+
+Responde estrictamente en formato JSON con la siguiente estructura:
+{
+  "clientName": "Nombre o Empresa",
+  "niche": "Nicho de mercado",
+  "painPoints": [
+    { "text": "Descripción del dolor", "severity": "high", "category": "Eficiencia/Ventas/Etc" }
+  ],
+  "objectives": ["Objetivo 1", "Objetivo 2"],
+  "complexity": 5,
+  "implementationType": "Nombre del servicio sugerido",
+  "currentSituation": "Resumen de la situación actual"
+}`;
+
+const GHL_ARCHITECT_PROMPT = `Eres un Arquitecto de Soluciones GHL experto. Tu trabajo es hacer preguntas técnicas precisas para definir la estructura del proyecto en ClickUp.
+El objetivo es clarificar dudas sobre integraciones, pipelines, automatizaciones complejas, o migración de datos.
+
+Reglas:
+1. Haz preguntas de una en una.
+2. Máximo 3 preguntas en total (llevamos la cuenta).
+3. Si ya tienes suficiente información para armar una estructura técnica sólida, responde con "ready": true.
+
+Responde estrictamente en formato JSON:
+{
+  "question": "Tu pregunta técnica aquí..."
+}
+O si ya terminaste:
+{
+  "ready": true
+}`;
+
+const PROJECT_GENERATOR_PROMPT = `Eres un Project Manager experto en implementaciones de GoHighLevel y uso de ClickUp.
+Tu objetivo es generar una estructura de proyecto detallada, dividida por semanas, para una implementación exitosa.
+
+Basándote en el análisis y las respuestas técnicas, crea un plan de trabajo.
+
+Responde estrictamente en formato JSON con esta estructura:
+{
+  "weeks": [
+    {
+      "weekNumber": 1,
+      "focus": "Setup Base & Integraciones",
+      "tasks": [
+        { "name": "Configurar Sub-Account", "description": "Crear subcuenta y configurar twilio/mailgun", "status": "OPEN", "estimate": "2h" },
+        { "name": "Integrar Stripe", "description": "Conectar pasarela de pagos", "status": "OPEN", "estimate": "1h" }
+      ]
+    },
+    ...
+  ]
+}`;
+
+const GHL_DOCUMENTATION_PROMPT = `Eres un Technical Writer experto en documentación de software y GoHighLevel.
+Genera una documentación técnica clara y estructurada para el equipo de implementación.
+Usa formato Markdown.
+
+Estructura requerida:
+# Documentación del Proyecto: [Cliente]
+
+## 1. Resumen Ejecutivo
+...
+
+## 2. Arquitectura de Pipelines
+- Pipeline de Ventas: Etapas [Stage 1, Stage 2...]
+...
+
+## 3. Automatizaciones Clave (Workflows)
+- Workflow 1: Trigger -> Acción
+...
+
+## 4. Integraciones y Configuración
+...
+
+## 5. Diccionario de Datos (Custom Fields)
+...`;
+
 // Lazy-loaded OpenAI client
 let openaiClient = null;
 const getOpenAI = (apiKeyOverride = null) => {
@@ -23,8 +107,6 @@ const getOpenAI = (apiKeyOverride = null) => {
     
     return openaiClient;
 };
-
-// ... (PROMPTS remain the same) ...
 
 export async function analyzeTranscript(transcript, apiKey = null) {
     const response = await getOpenAI(apiKey).chat.completions.create({
