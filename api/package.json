@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "description": "GHL Implementation Assistant Backend",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
-    "dev": "node --watch server.js",
-    "start": "node server.js"
+    "dev": "node --watch index.js",
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",
