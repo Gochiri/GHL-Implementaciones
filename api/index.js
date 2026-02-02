@@ -165,11 +165,11 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 // Analyze transcript - extracts pain points, complexity, scope
 app.post('/api/analyze', async (req, res) => {
   try {
-    const { transcript } = req.body;
+    const { transcript, apiKey } = req.body;
     if (!transcript) {
       return res.status(400).json({ error: 'Transcript is required' });
     }
-    const analysis = await analyzeTranscript(transcript);
+    const analysis = await analyzeTranscript(transcript, apiKey);
 
     // Auto-create project record
     const id = uuidv4();
@@ -200,8 +200,8 @@ app.post('/api/analyze', async (req, res) => {
 // Hormozi-style questioning
 app.post('/api/hormozi', async (req, res) => {
   try {
-    const { context, previousAnswers, projectId } = req.body;
-    const response = await askHormoziQuestion(context, previousAnswers);
+    const { context, previousAnswers, projectId, apiKey } = req.body;
+    const response = await askHormoziQuestion(context, previousAnswers, apiKey);
 
     // Optional: save answers to project if projectId provided
     if (projectId && previousAnswers && db) {
@@ -219,8 +219,8 @@ app.post('/api/hormozi', async (req, res) => {
 // Generate project structure
 app.post('/api/project-structure', async (req, res) => {
   try {
-    const { analysis, answers, projectId } = req.body;
-    const structure = await generateProjectStructure(analysis, answers);
+    const { analysis, answers, projectId, apiKey } = req.body;
+    const structure = await generateProjectStructure(analysis, answers, apiKey);
 
     if (projectId && db) {
       db.prepare('UPDATE projects SET weeks = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
@@ -237,8 +237,8 @@ app.post('/api/project-structure', async (req, res) => {
 // Generate quotation
 app.post('/api/quotation', async (req, res) => {
   try {
-    const { analysis, projectStructure, projectId } = req.body;
-    const quotation = await generateQuotation(analysis, projectStructure);
+    const { analysis, projectStructure, projectId, apiKey } = req.body;
+    const quotation = await generateQuotation(analysis, projectStructure, apiKey);
 
     if (projectId && db) {
       db.prepare('UPDATE projects SET status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
@@ -255,9 +255,9 @@ app.post('/api/quotation', async (req, res) => {
 // Project Approval Flow
 app.post('/api/project/approve', async (req, res) => {
   try {
-    const { analysis, projectStructure, answers, clickupConfig, projectId } = req.body;
+    const { analysis, projectStructure, answers, clickupConfig, projectId, apiKey } = req.body;
 
-    const documentation = await generateGHLDocumentation(analysis, projectStructure, answers);
+    const documentation = await generateGHLDocumentation(analysis, projectStructure, answers, apiKey);
 
     const projectWithDoc = {
       ...projectStructure,

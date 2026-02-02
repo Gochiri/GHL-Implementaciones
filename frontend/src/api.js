@@ -36,65 +36,80 @@ export const api = {
 
     // --- AI SERVICES ---
 
+    // Helper to get API key from settings
+    _getOpenAIKey: () => {
+        try {
+            const settings = JSON.parse(localStorage.getItem('ghl-settings') || '{}');
+            return settings.openai?.apiKey || '';
+        } catch (e) {
+            return '';
+        }
+    },
+
     // Analyze transcript - now returns the project ID created in backend
-    analyze: (transcript) =>
-        fetch(`${API_BASE_URL}/api/analyze`, {
+    analyze: function(transcript) {
+        return fetch(`${API_BASE_URL}/api/analyze`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transcript })
+            body: JSON.stringify({ transcript, apiKey: this._getOpenAIKey() })
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error analizando transcripción');
             return data;
-        }),
+        });
+    },
 
     // Hormozi questioning
-    hormozi: (context, previousAnswers, projectId) =>
-        fetch(`${API_BASE_URL}/api/hormozi`, {
+    hormozi: function(context, previousAnswers, projectId) {
+        return fetch(`${API_BASE_URL}/api/hormozi`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context, previousAnswers, projectId })
+            body: JSON.stringify({ context, previousAnswers, projectId, apiKey: this._getOpenAIKey() }) 
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error en el asistente');
             return data;
-        }),
+        });
+    },
 
     // Generate project structure
-    projectStructure: (analysis, answers, projectId) =>
-        fetch(`${API_BASE_URL}/api/project-structure`, {
+    projectStructure: function(analysis, answers, projectId) {
+        return fetch(`${API_BASE_URL}/api/project-structure`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ analysis, answers, projectId })
+            body: JSON.stringify({ analysis, answers, projectId, apiKey: this._getOpenAIKey() }) 
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error generando estructura de proyecto');
             return data;
-        }),
+        });
+    },
 
     // Generate quotation
-    quotation: (analysis, projectStructure, projectId) =>
-        fetch(`${API_BASE_URL}/api/quotation`, {
+    quotation: function(analysis, projectStructure, projectId) {
+        return fetch(`${API_BASE_URL}/api/quotation`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ analysis, projectStructure, projectId })
+            body: JSON.stringify({ analysis, projectStructure, projectId, apiKey: this._getOpenAIKey() }) 
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error generando cotización');
             return data;
-        }),
+        });
+    },
 
     // Approve Project: Generates documentation and exports to ClickUp
-    approveProject: (analysis, projectStructure, answers, clickupConfig, projectId) =>
-        fetch(`${API_BASE_URL}/api/project/approve`, {
+    approveProject: function(analysis, projectStructure, answers, clickupConfig, projectId) {
+        return fetch(`${API_BASE_URL}/api/project/approve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ analysis, projectStructure, answers, clickupConfig, projectId })
+            body: JSON.stringify({ analysis, projectStructure, answers, clickupConfig, projectId, apiKey: this._getOpenAIKey() }) 
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error aprobando y exportando proyecto');
             return data;
-        }),
+        });
+    },
 
     // --- UTILS ---
 
