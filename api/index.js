@@ -38,6 +38,7 @@ app.get('/api/health', (req, res) => {
 // Get all projects
 app.get('/api/projects', (req, res) => {
   try {
+    if (!db) return res.json([]); // Return empty list if no DB
     const projects = db.prepare('SELECT * FROM projects ORDER BY updatedAt DESC').all();
     // Parse JSON fields
     const parsed = projects.map(p => ({
@@ -55,6 +56,7 @@ app.get('/api/projects', (req, res) => {
 // Get single project
 app.get('/api/projects/:id', (req, res) => {
   try {
+    if (!db) return res.status(404).json({ error: 'Project not found (No DB)' });
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -75,20 +77,22 @@ app.post('/api/projects', (req, res) => {
     const { name, clientName, niche, analysis, weeks, status } = req.body;
     const id = uuidv4();
 
-    const stmt = db.prepare(`
-      INSERT INTO projects (id, name, clientName, niche, analysis, weeks, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
+    if (db) {
+      const stmt = db.prepare(`
+        INSERT INTO projects (id, name, clientName, niche, analysis, weeks, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
 
-    stmt.run(
-      id,
-      name || clientName || 'Nuevo Proyecto',
-      clientName,
-      niche,
-      JSON.stringify(analysis || null),
-      JSON.stringify(weeks || []),
-      status || 'analysis'
-    );
+      stmt.run(
+        id,
+        name || clientName || 'Nuevo Proyecto',
+        clientName,
+        niche,
+        JSON.stringify(analysis || null),
+        JSON.stringify(weeks || []),
+        status || 'analysis'
+      );
+    }
 
     res.json({ id, success: true });
   } catch (error) {
@@ -100,6 +104,8 @@ app.post('/api/projects', (req, res) => {
 app.put('/api/projects/:id', (req, res) => {
   try {
     const { name, clientName, niche, complexity, status, analysis, weeks, answers, documentation } = req.body;
+
+    if (!db) return res.json({ success: true, message: 'No DB connected' });
 
     const fields = [];
     const values = [];
@@ -133,7 +139,7 @@ app.put('/api/projects/:id', (req, res) => {
 // Delete project
 app.delete('/api/projects/:id', (req, res) => {
   try {
-    db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+    if (db) db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -167,20 +173,22 @@ app.post('/api/analyze', async (req, res) => {
 
     // Auto-create project record
     const id = uuidv4();
-    const stmt = db.prepare(`
-      INSERT INTO projects (id, name, clientName, niche, complexity, analysis, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
+    if (db) {
+        const stmt = db.prepare(`
+        INSERT INTO projects (id, name, clientName, niche, complexity, analysis, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
 
-    stmt.run(
-      id,
-      analysis.clientName || 'Nuevo Proyecto',
-      analysis.clientName,
-      analysis.niche,
-      analysis.complexity,
-      JSON.stringify(analysis),
-      'analysis'
-    );
+        stmt.run(
+        id,
+        analysis.clientName || 'Nuevo Proyecto',
+        analysis.clientName,
+        analysis.niche,
+        analysis.complexity,
+        JSON.stringify(analysis),
+        'analysis'
+        );
+    }
 
     res.json({ ...analysis, id });
   } catch (error) {
@@ -196,7 +204,7 @@ app.post('/api/hormozi', async (req, res) => {
     const response = await askHormoziQuestion(context, previousAnswers);
 
     // Optional: save answers to project if projectId provided
-    if (projectId && previousAnswers) {
+    if (projectId && previousAnswers && db) {
       db.prepare('UPDATE projects SET answers = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
         .run(JSON.stringify(previousAnswers), projectId);
     }
@@ -214,7 +222,7 @@ app.post('/api/project-structure', async (req, res) => {
     const { analysis, answers, projectId } = req.body;
     const structure = await generateProjectStructure(analysis, answers);
 
-    if (projectId) {
+    if (projectId && db) {
       db.prepare('UPDATE projects SET weeks = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
         .run(JSON.stringify(structure.weeks), 'created', projectId);
     }
@@ -232,7 +240,7 @@ app.post('/api/quotation', async (req, res) => {
     const { analysis, projectStructure, projectId } = req.body;
     const quotation = await generateQuotation(analysis, projectStructure);
 
-    if (projectId) {
+    if (projectId && db) {
       db.prepare('UPDATE projects SET status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
         .run('proposal', projectId);
     }
@@ -265,7 +273,7 @@ app.post('/api/project/approve', async (req, res) => {
 
     const result = await createClickUpProject(projectWithDoc, finalConfig);
 
-    if (projectId) {
+    if (projectId && db) {
       db.prepare('UPDATE projects SET documentation = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
         .run(documentation, 'approved', projectId);
     }
@@ -307,12 +315,14 @@ app.post('/api/webhook/ghl', async (req, res) => {
     const { contact, pipeline_stage, message } = req.body;
     const id = Date.now().toString();
 
-    const stmt = db.prepare(`
-      INSERT INTO webhooks (id, contact, stage, message)
-      VALUES (?, ?, ?, ?)
-    `);
+    if (db) {
+        const stmt = db.prepare(`
+        INSERT INTO webhooks (id, contact, stage, message)
+        VALUES (?, ?, ?, ?)
+        `);
 
-    stmt.run(id, JSON.stringify(contact || { name: 'Lead Desconocido' }), pipeline_stage || 'Review', message || '');
+        stmt.run(id, JSON.stringify(contact || { name: 'Lead Desconocido' }), pipeline_stage || 'Review', message || '');
+    }
 
     res.json({ success: true, id });
   } catch (error) {
@@ -323,6 +333,7 @@ app.post('/api/webhook/ghl', async (req, res) => {
 
 app.get('/api/webhooks', (req, res) => {
   try {
+    if (!db) return res.json([]);
     const webhooks = db.prepare('SELECT * FROM webhooks ORDER BY receivedAt DESC LIMIT 50').all();
     const parsed = webhooks.map(w => ({
       ...w,
