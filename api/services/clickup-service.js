@@ -3,7 +3,11 @@ import axios from 'axios';
 const CLICKUP_API_BASE = 'https://api.clickup.com/api/v2';
 
 export async function createClickUpProject(projectData, clickupConfig) {
-    const { apiToken, spaceId } = clickupConfig;
+    let { apiToken, spaceId } = clickupConfig;
+
+    // Clean credentials (remove whitespace and potential quotes)
+    if (apiToken) apiToken = apiToken.trim().replace(/^['"]|['"]$/g, '');
+    if (spaceId) spaceId = spaceId.toString().trim().replace(/^['"]|['"]$/g, '');
 
     if (!apiToken || !spaceId) {
         throw new Error('ClickUp API token and Space ID are required');

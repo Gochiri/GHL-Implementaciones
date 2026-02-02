@@ -3,9 +3,12 @@ import OpenAI from 'openai';
 // Lazy-loaded OpenAI client
 let openaiClient = null;
 const getOpenAI = () => {
-    if (!openaiClient && process.env.OPENAI_API_KEY) {
+    let apiKey = process.env.OPENAI_API_KEY;
+    if (apiKey) apiKey = apiKey.trim().replace(/^['"]|['"]$/g, '');
+
+    if (!openaiClient && apiKey) {
         openaiClient = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY
+            apiKey: apiKey
         });
     }
     if (!openaiClient) {
