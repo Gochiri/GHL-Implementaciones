@@ -140,8 +140,6 @@ const loadProject = async () => {
   }
 }
 
-const projectAnalysis = ref(null)
-
 const saveProjectState = async (newStatus = null) => {
   const projectId = route.params.id
   if (!projectId) return
