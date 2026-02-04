@@ -121,7 +121,7 @@ export async function generateProjectStructure(analysis, answers, apiKey = null)
         messages: [
             { 
               role: 'system', 
-              content: `Eres un Project Manager. Convierte este roadmap/análisis en una estructura de semanas y tareas para ClickUp. Responde estrictamente en JSON: {"weeks": [{"weekNumber": 1, "focus": "...", "tasks": [{"name": "...", "description": "...", "status": "OPEN", "estimate": "2h"}]}]}` 
+              content: `Eres un Project Manager. Convierte este roadmap/análisis en una estructura de semanas y tareas para ClickUp. Responde estrictamente en JSON: {"weeks": [{"weekNumber": 1, "name": "Week Title", "focus": "...", "tasks": [{"name": "...", "description": "...", "status": "OPEN", "estimate": "2h"}]}]}` 
             },
             {
                 role: 'user',

@@ -7,6 +7,34 @@ const router = useRouter()
 const route = useRoute()
 
 onMounted(async () => {
+  // 1. Try to restore previous session
+  const savedSession = localStorage.getItem('last-analysis')
+  if (savedSession) {
+    try {
+      const parsed = JSON.parse(savedSession)
+      // Only restore if it looks valid
+      if (parsed.clientName || parsed.transcript) {
+        analysis.value = parsed
+        transcript.value = parsed.transcript || ''
+        previousAnswers.value = parsed.answers || []
+        
+        // Restore chat if possible, or minimal reconstruction
+        if (parsed.chatMessages) {
+          chatMessages.value = parsed.chatMessages
+        }
+        
+        // Restore UI state
+        if (parsed.painPoints && parsed.painPoints.length > 0) {
+          analysisComplete.value = true
+          isReady.value = true // Assume ready if restoring
+        }
+      }
+    } catch (e) {
+      console.error('Error restoring session:', e)
+    }
+  }
+
+  // 2. Check for leadId from URL (overrides saved session if present)
   const leadId = route.query.leadId
   if (leadId) {
     try {
@@ -244,9 +272,11 @@ const finishChat = () => {
 }
 
 const saveAndRedirect = async () => {
-  // Save analysis
+  // Save analysis with full state
   localStorage.setItem('last-analysis', JSON.stringify({
     ...analysis.value,
+    transcript: transcript.value,
+    chatMessages: chatMessages.value,
     answers: previousAnswers.value
   }))
 
