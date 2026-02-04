@@ -444,6 +444,11 @@ const getSeverityClass = (severity) => {
               </div>
             </div>
           </div>
+          
+          <div v-if="analysis.roadmap" class="tech-card roadmap-card fadeIn" style="margin-top: 20px;">
+            <div class="tech-card-title">📘 Roadmap Detallado</div>
+            <div class="roadmap-markdown" v-html="renderMarkdown(analysis.roadmap)"></div>
+          </div>
         </div>
 
         <div class="direct-actions">

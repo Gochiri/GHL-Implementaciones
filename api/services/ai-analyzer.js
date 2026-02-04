@@ -25,17 +25,17 @@ const getSkillPrompt = (skillName) => {
 // Lazy-loaded OpenAI client
 let openaiClient = null;
 const getOpenAI = (apiKeyOverride = null) => {
-    let apiKey = apiKeyOverride || process.env.OPENAI_API_KEY;
-    if (apiKey) apiKey = apiKey.trim().replace(/^['"]|['"]$/g, '');
+  let apiKey = apiKeyOverride || process.env.OPENAI_API_KEY;
+  if (apiKey) apiKey = apiKey.trim().replace(/^['"]|['"]$/g, '');
 
-    if (apiKeyOverride || !openaiClient) {
-        if (!apiKey) {
-             if (!process.env.OPENAI_API_KEY) return null;
-             apiKey = process.env.OPENAI_API_KEY;
-        }
-        return new OpenAI({ apiKey });
+  if (apiKeyOverride || !openaiClient) {
+    if (!apiKey) {
+      if (!process.env.OPENAI_API_KEY) return null;
+      apiKey = process.env.OPENAI_API_KEY;
     }
-    return openaiClient;
+    return new OpenAI({ apiKey });
+  }
+  return openaiClient;
 };
 
 // --- CORE FUNCTIONS ---
@@ -45,145 +45,186 @@ export async function analyzeTranscript(transcript, apiKey = null) {
   if (!client) throw new Error('OpenAI API key not configured in settings.');
 
   const skillPrompt = getSkillPrompt('ghl-onboarding-mapper');
-  
-  // Base prompt if skill file is missing
-  const defaultPrompt = `Eres un experto analista de negocios GHL. Analiza la transcripción y extrae JSON.`;
-  
-  const systemPrompt = skillPrompt ? `${skillPrompt}\n\nIMPORTANT: At the end of your response, provide a JSON object wrapped in \`\`\`json tags containing: clientName, niche, painPoints (array), objectives (array), complexity, implementationType, currentSituation.` : defaultPrompt;
 
-  const response = await client.chat.completions.create({
+  const systemPrompt = `
+Eres un experto Arquitecto de Soluciones GHL y Analista de Negocios.
+Tu tarea es analizar una transcripción de una llamada de onboarding y extraer los componentes clave.
+
+${skillPrompt || 'Analiza los puntos de dolor, objetivos y complejidad técnica.'}
+
+DEBES responder ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
+{
+  "clientName": "Nombre del cliente/empresa",
+  "niche": "Nicho de mercado",
+  "painPoints": [{"id": 1, "text": "descripción", "severity": "high|medium|low", "category": "Categoría"}],
+  "objectives": ["Objetivo 1", "Objetivo 2"],
+  "complexity": 1-10 (número),
+  "implementationType": "Tipo de implementación",
+  "currentSituation": "Resumen breve de la situación actual",
+  "roadmap": "Aquí pon TODO el análisis detallado del Roadmap en formato Markdown (extenso y profesional)"
+}
+`;
+
+  try {
+    const response = await client.chat.completions.create({
       model: AI_MODEL,
       messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Analiza la siguiente transcripción:\n\n${transcript}` }
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Analiza la siguiente transcripción:\n\n${transcript}` }
       ],
-      // Use json_object only if we are sure we want strictly JSON. 
-      // But the skill returns a full Roadmap + JSON. So we don't force JSON mode here.
+      response_format: { type: 'json_object' },
       temperature: 0.3
-  });
+    });
 
-  const content = response.choices[0].message.content;
-  
-  // Extract JSON part
-  const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-  let analysisData = {};
-  
-  if (jsonMatch && jsonMatch[1]) {
-    try {
-      analysisData = JSON.parse(jsonMatch[1]);
-    } catch (e) {
-      console.error('Failed to parse JSON from AI response');
-    }
+    const data = JSON.parse(response.choices[0].message.content);
+
+    // Normalización de campos para asegurar compatibilidad con el frontend
+    return {
+      id: data.id || `proj_${Date.now()}`,
+      clientName: data.clientName || data.nombre_cliente || data.nombre || 'Nuevo Proyecto',
+      niche: data.niche || data.nicho || 'GHL Implementation',
+      painPoints: data.painPoints || data.dolores || data.puntos_dolor || [],
+      objectives: data.objectives || data.objetivos || [],
+      complexity: data.complexity || data.complejidad || 5,
+      implementationType: data.implementationType || data.tipo_implementacion || 'Setup Estándar',
+      currentSituation: data.currentSituation || data.situacion_actual || '',
+      roadmap: data.roadmap || data.contenido || ''
+    };
+  } catch (error) {
+    console.error('Error in analyzeTranscript:', error);
+    throw error;
   }
-
-  return {
-    ...analysisData,
-    roadmap: content, // The full detailed roadmap from the skill
-    clientName: analysisData.clientName || 'Nuevo Proyecto'
-  };
 }
 
 export async function askHormoziQuestion(context, previousAnswers = [], apiKey = null) {
-    const client = getOpenAI(apiKey);
-    if (!client) throw new Error('OpenAI API key required');
+  const client = getOpenAI(apiKey);
+  if (!client) throw new Error('OpenAI API key required');
 
-    const messages = [
-        { 
-          role: 'system', 
-          content: `Eres un Arquitecto GHL. Haz preguntas técnicas (máx 3). Responde en JSON: {"question": "..."} o {"ready": true}.` 
-        },
-        { role: 'user', content: `Contexto:\n${JSON.stringify(context, null, 2)}` }
-    ];
+  const messages = [
+    {
+      role: 'system',
+      content: `Eres un Arquitecto GHL. Haz preguntas técnicas (máx 3). Responde en JSON: {"question": "..."} o {"ready": true}.`
+    },
+    { role: 'user', content: `Contexto:\n${JSON.stringify(context, null, 2)}` }
+  ];
 
-    for (const qa of previousAnswers) {
-        messages.push({ role: 'assistant', content: qa.question });
-        messages.push({ role: 'user', content: qa.answer });
-    }
+  for (const qa of previousAnswers) {
+    messages.push({ role: 'assistant', content: qa.question });
+    messages.push({ role: 'user', content: qa.answer });
+  }
 
-    const response = await client.chat.completions.create({
-        model: AI_MODEL,
-        messages,
-        response_format: { type: 'json_object' },
-        temperature: 0.7
-    });
+  const response = await client.chat.completions.create({
+    model: AI_MODEL,
+    messages,
+    response_format: { type: 'json_object' },
+    temperature: 0.7
+  });
 
-    return JSON.parse(response.choices[0].message.content);
+  return JSON.parse(response.choices[0].message.content);
 }
 
 export async function generateProjectStructure(analysis, answers, apiKey = null) {
-    const client = getOpenAI(apiKey);
-    if (!client) throw new Error('OpenAI API key required');
+  const client = getOpenAI(apiKey);
+  if (!client) throw new Error('OpenAI API key required');
 
-    const roadmapContext = analysis.roadmap || JSON.stringify(analysis);
+  const roadmapContext = analysis.roadmap || JSON.stringify(analysis);
 
-    const response = await client.chat.completions.create({
-        model: AI_MODEL,
-        messages: [
-            { 
-              role: 'system', 
-              content: `Eres un Project Manager. Convierte este roadmap/análisis en una estructura de semanas y tareas para ClickUp. Responde estrictamente en JSON: {"weeks": [{"weekNumber": 1, "name": "Week Title", "focus": "...", "tasks": [{"name": "...", "description": "...", "status": "OPEN", "estimate": "2h"}]}]}` 
-            },
-            {
-                role: 'user',
-                content: `Roadmap/Contexto:\n${roadmapContext}\n\nRespuestas:\n${JSON.stringify(answers)}`
-            }
-        ],
-        response_format: { type: 'json_object' },
-        temperature: 0.2
-    });
+  const response = await client.chat.completions.create({
+    model: AI_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: `Eres un experto Project Manager GHL. Tu objetivo es convertir un Roadmap técnico en una estructura de proyecto ejecutable.
+              
+DEBES responder con un objeto JSON con esta estructura exacta:
+{
+  "weeks": [
+    {
+      "weekNumber": 1,
+      "name": "Título de la Fase/Semana",
+      "focus": "Objetivo principal",
+      "tasks": [
+        {
+          "name": "Nombre de la tarea",
+          "description": "Explicación técnica clara",
+          "estimate": "2h"
+        }
+      ]
+    }
+  ]
+}
 
-    return JSON.parse(response.choices[0].message.content);
+IMPORTANTE: 
+- Crea entre 4 y 12 semanas según la complejidad.
+- Cada tarea debe ser específica para GHL (Workflows, Pipelines, Custom Fields, etc.)
+- Responde solo el JSON.`
+      },
+      {
+        role: 'user',
+        content: `Roadmap/Contexto:\n${roadmapContext}\n\nRespuestas técnicas adicionales:\n${JSON.stringify(answers)}`
+      }
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.2
+  });
+
+  const data = JSON.parse(response.choices[0].message.content);
+
+  // Normalización para asegurar que siempre haya semanas
+  return {
+    weeks: data.weeks || data.semanas || []
+  };
 }
 
 export async function generateQuotation(analysis, projectStructure, apiKey = null) {
-    const client = getOpenAI(apiKey);
-    if (!client) throw new Error('OpenAI API key required');
+  const client = getOpenAI(apiKey);
+  if (!client) throw new Error('OpenAI API key required');
 
-    const skillPrompt = getSkillPrompt('ghl-cotizador');
-    const roadmap = analysis.roadmap || JSON.stringify(analysis);
+  const skillPrompt = getSkillPrompt('ghl-cotizador');
+  const roadmap = analysis.roadmap || JSON.stringify(analysis);
 
-    const systemPrompt = skillPrompt 
-      ? `${skillPrompt}\n\nIMPORTANT: Return a JSON object wrapped in \`\`\`json tags with: html (the professional quote), investment (total number), timeline, solutions (array), painPoints (array), roi (object).`
-      : `Eres un experto en cotización GHL. Genera JSON con: investment, timeline, solutions, painPoints, roi, html.`;
+  const systemPrompt = skillPrompt
+    ? `${skillPrompt}\n\nIMPORTANT: Return a JSON object wrapped in \`\`\`json tags with: html (the professional quote), investment (total number), timeline, solutions (array), painPoints (array), roi (object).`
+    : `Eres un experto en cotización GHL. Genera JSON con: investment, timeline, solutions, painPoints, roi, html.`;
 
-    const response = await client.chat.completions.create({
-        model: AI_MODEL,
-        messages: [
-            { role: 'system', content: systemPrompt },
-            {
-                role: 'user',
-                content: `Genera la cotización basada en este Roadmap:\n${roadmap}`
-            }
-        ],
-        temperature: 0.3
-    });
+  const response = await client.chat.completions.create({
+    model: AI_MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: `Genera la cotización basada en este Roadmap:\n${roadmap}`
+      }
+    ],
+    temperature: 0.3
+  });
 
-    const content = response.choices[0].message.content;
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-    
-    if (jsonMatch && jsonMatch[1]) {
-      return JSON.parse(jsonMatch[1]);
-    }
+  const content = response.choices[0].message.content;
+  const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
 
-    // Fallback if no JSON blocks found
-    return { html: content, investment: 0, timeline: 'Por definir' };
+  if (jsonMatch && jsonMatch[1]) {
+    return JSON.parse(jsonMatch[1]);
+  }
+
+  // Fallback if no JSON blocks found
+  return { html: content, investment: 0, timeline: 'Por definir' };
 }
 
 export async function generateGHLDocumentation(analysis, projectStructure, answers, apiKey = null) {
-    const client = getOpenAI(apiKey);
-    const roadmap = analysis.roadmap || JSON.stringify(analysis);
+  const client = getOpenAI(apiKey);
+  const roadmap = analysis.roadmap || JSON.stringify(analysis);
 
-    const response = await client.chat.completions.create({
-        model: AI_MODEL,
-        messages: [
-            { role: 'system', content: 'Genera documentación técnica en Markdown basada en el roadmap y estructura del proyecto.' },
-            {
-                role: 'user',
-                content: `Roadmap:\n${roadmap}\n\nEstructura:\n${JSON.stringify(projectStructure)}`
-            }
-        ],
-        temperature: 0.2
-    });
+  const response = await client.chat.completions.create({
+    model: AI_MODEL,
+    messages: [
+      { role: 'system', content: 'Genera documentación técnica en Markdown basada en el roadmap y estructura del proyecto.' },
+      {
+        role: 'user',
+        content: `Roadmap:\n${roadmap}\n\nEstructura:\n${JSON.stringify(projectStructure)}`
+      }
+    ],
+    temperature: 0.2
+  });
 
-    return response.choices[0].message.content;
+  return response.choices[0].message.content;
 }
