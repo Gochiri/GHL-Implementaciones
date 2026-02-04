@@ -478,7 +478,14 @@ const getSeverityClass = (severity) => {
           <button class="btn btn-primary btn-sm" @click="sendMessage">🚀</button>
         </div>
         <div class="chat-actions-final" v-else>
-          <button class="btn btn-primary full-width pulse-btn" @click="finishChat">Finalizar Ajustes 🔥</button>
+          <button 
+            class="btn btn-primary full-width pulse-btn" 
+            @click="finishChat"
+            :disabled="isGenerating"
+          >
+            <span v-if="isGenerating" class="loading-spinner"></span>
+            {{ isGenerating ? 'Generando...' : 'Finalizar Ajustes 🔥' }}
+          </button>
         </div>
       </div>
 

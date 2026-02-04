@@ -80,7 +80,8 @@ const loadProject = async () => {
 
   try {
     const project = await api.getProject(projectId)
-    if (project) {
+    // Check if the project is valid and has actual data (not just an error object or empty)
+    if (project && project.id && (project.weeks?.length > 0 || project.clientName)) {
       showSelector.value = false
       localStorage.setItem('last-project-id', project.id)
       clientName.value = project.name || project.clientName || 'Sin Nombre'
@@ -100,6 +101,8 @@ const loadProject = async () => {
       
       if (project.projectType) projectType.value = project.projectType
       projectAnalysis.value = project.analysis || getLocalAnalysis(projectId)
+    } else {
+      throw new Error('Project data incomplete in API')
     }
   } catch (error) {
     console.warn('Project not found in API, checking localStorage:', projectId)

@@ -10,29 +10,49 @@ export const api = {
 
     // --- PROJECT CRUD ---
     getProjects: () =>
-        fetch(`${API_BASE_URL}/api/projects`).then(r => r.json()),
+        fetch(`${API_BASE_URL}/api/projects`).then(async r => {
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Error al obtener proyectos');
+            return data;
+        }),
 
     getProject: (id) =>
-        fetch(`${API_BASE_URL}/api/projects/${id}`).then(r => r.json()),
+        fetch(`${API_BASE_URL}/api/projects/${id}`).then(async r => {
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Proyecto no encontrado');
+            return data;
+        }),
 
     createProject: (projectData) =>
         fetch(`${API_BASE_URL}/api/projects`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(projectData)
-        }).then(r => r.json()),
+        }).then(async r => {
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Error al crear proyecto');
+            return data;
+        }),
 
     updateProject: (id, projectData) =>
         fetch(`${API_BASE_URL}/api/projects/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(projectData)
-        }).then(r => r.json()),
+        }).then(async r => {
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Error al actualizar proyecto');
+            return data;
+        }),
 
     deleteProject: (id) =>
         fetch(`${API_BASE_URL}/api/projects/${id}`, {
             method: 'DELETE'
-        }).then(r => r.json()),
+        }).then(async r => {
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Error al eliminar proyecto');
+            return data;
+        }),
 
     // --- AI SERVICES ---
 
