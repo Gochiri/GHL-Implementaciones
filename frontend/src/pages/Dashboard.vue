@@ -96,6 +96,11 @@ onMounted(async () => {
   }
 })
 
+const latestBlueprintProject = computed(() => {
+  const withDocs = recentAnalyses.value.filter(p => !!p.documentation)
+  return withDocs.length > 0 ? withDocs[0] : null
+})
+
 const getProjectPath = (analysis) => {
   return `/project/${analysis.id}`
 }
@@ -182,6 +187,11 @@ const getProposalPath = (analysis) => {
           <span class="action-title">Nueva Propuesta</span>
           <span class="action-desc">Generar propuesta HTML</span>
         </router-link>
+        <router-link v-if="latestBlueprintProject" :to="getProjectPath(latestBlueprintProject)" class="action-card blueprint-card">
+          <span class="action-icon">📘</span>
+          <span class="action-title">Último Blueprint</span>
+          <span class="action-desc">Ver: {{ latestBlueprintProject.client }}</span>
+        </router-link>
       </div>
     </section>
 
@@ -234,8 +244,9 @@ const getProposalPath = (analysis) => {
                 </span>
               </td>
               <td>
-                <router-link :to="getProjectPath(analysis)" class="btn-icon" title="Ver detalles">👁️</router-link>
+                <router-link :to="getProjectPath(analysis)" class="btn-icon" title="Ver estructura">👁️</router-link>
                 <router-link :to="getProposalPath(analysis)" class="btn-icon" title="Ver propuesta">📄</router-link>
+                <router-link v-if="analysis.documentation" :to="getProjectPath(analysis)" class="btn-icon blue-glow" title="Ver Blueprint">📘</router-link>
               </td>
             </tr>
           </tbody>
@@ -607,5 +618,18 @@ const getProposalPath = (analysis) => {
 .empty-activity .empty-icon {
   font-size: 24px;
   opacity: 0.5;
+}
+.blue-glow {
+  text-shadow: 0 0 10px rgba(167, 139, 250, 0.5);
+}
+
+.blueprint-card {
+  border-color: rgba(167, 139, 250, 0.4);
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.05), rgba(71, 118, 230, 0.05));
+}
+
+.blueprint-card:hover {
+  border-color: var(--primary-light);
+  box-shadow: 0 10px 30px rgba(167, 139, 250, 0.2);
 }
 </style>

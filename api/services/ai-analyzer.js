@@ -11,9 +11,15 @@ const AI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 // Helper to load skill content (SKILL.md)
 const getSkillPrompt = (skillName) => {
   try {
-    const skillPath = path.resolve(__dirname, '../../skills', skillName, 'SKILL.md');
+    // Fixed path casing and possible variations ('Skills' is the actual folder name)
+    const skillPath = path.resolve(__dirname, '../../Skills', skillName, 'SKILL.md');
     if (fs.existsSync(skillPath)) {
       return fs.readFileSync(skillPath, 'utf-8');
+    }
+    // Fallback search if 'Skills' case fails (though it should be capital on this system)
+    const altPath = path.resolve(__dirname, '../../skills', skillName, 'SKILL.md');
+    if (fs.existsSync(altPath)) {
+      return fs.readFileSync(altPath, 'utf-8');
     }
     return null;
   } catch (error) {
@@ -44,13 +50,18 @@ export async function analyzeTranscript(transcript, apiKey = null) {
   const client = getOpenAI(apiKey);
   if (!client) throw new Error('OpenAI API key not configured in settings.');
 
-  const skillPrompt = getSkillPrompt('ghl-onboarding-mapper');
+  const mapperSkill = getSkillPrompt('ghl-onboarding-mapper');
+  const cotizadorSkill = getSkillPrompt('ghl-cotizador');
 
   const systemPrompt = `
 Eres un experto Arquitecto de Soluciones GHL y Analista de Negocios.
-Tu tarea es analizar una transcripción de una llamada de onboarding y extraer los componentes clave.
+Tu tarea es analizar una transcripción de una llamada de onboarding y extraer los componentes clave basándote en la metodología de implementación GHL.
 
-${skillPrompt || 'Analiza los puntos de dolor, objetivos y complejidad técnica.'}
+### METODOLOGÍA DE MAPEADO (Roadmap):
+${mapperSkill || 'Analiza los puntos de dolor, objetivos y complejidad técnica.'}
+
+### CRITERIOS DE SOLUCIÓN Y MÓDULOS (Cotización):
+${cotizadorSkill || 'Considera CRM, Workflows, Chatbots, Landings e Integraciones.'}
 
 DEBES responder ÚNICAMENTE con un objeto JSON válido con la siguiente estructura:
 {
@@ -59,9 +70,9 @@ DEBES responder ÚNICAMENTE con un objeto JSON válido con la siguiente estructu
   "painPoints": [{"id": 1, "text": "descripción", "severity": "high|medium|low", "category": "Categoría"}],
   "objectives": ["Objetivo 1", "Objetivo 2"],
   "complexity": 1-10 (número),
-  "implementationType": "Tipo de implementación",
+  "implementationType": "Tipo de implementación (Basado en la tabla de paquetes si es posible)",
   "currentSituation": "Resumen breve de la situación actual",
-  "roadmap": "Aquí pon TODO el análisis detallado del Roadmap en formato Markdown (extenso y profesional)"
+  "roadmap": "Aquí pon TODO el análisis detallado del Roadmap en formato Markdown (extenso y profesional siguiendo la nomenclatura LS/SP/AP del mapper)"
 }
 `;
 
@@ -100,10 +111,18 @@ export async function askHormoziQuestion(context, previousAnswers = [], apiKey =
   const client = getOpenAI(apiKey);
   if (!client) throw new Error('OpenAI API key required');
 
+  const mapperSkill = getSkillPrompt('ghl-onboarding-mapper');
+
   const messages = [
     {
       role: 'system',
-      content: `Eres un Arquitecto GHL. Haz preguntas técnicas (máx 3). Responde en JSON: {"question": "..."} o {"ready": true}.`
+      content: `Eres un Arquitecto GHL experto en la metodología de implementación. 
+      Haz preguntas técnicas (máx 3) para profundizar en los detalles necesarios para el mapeado LS/SP/AP.
+      
+      ### REGLAS DE MAPEADO:
+      ${mapperSkill || 'Foco en Pipelines, Workflows y Asset Inventory.'}
+      
+      Responde en JSON: {"question": "..."} o {"ready": true}.`
     },
     { role: 'user', content: `Contexto:\n${JSON.stringify(context, null, 2)}` }
   ];
@@ -127,6 +146,7 @@ export async function generateProjectStructure(analysis, answers, apiKey = null)
   const client = getOpenAI(apiKey);
   if (!client) throw new Error('OpenAI API key required');
 
+  const mapperSkill = getSkillPrompt('ghl-onboarding-mapper');
   const roadmapContext = analysis.roadmap || JSON.stringify(analysis);
 
   const response = await client.chat.completions.create({
@@ -134,30 +154,40 @@ export async function generateProjectStructure(analysis, answers, apiKey = null)
     messages: [
       {
         role: 'system',
-        content: `Eres un experto Project Manager GHL. Tu objetivo es convertir un Roadmap técnico en una estructura de proyecto ejecutable.
+        content: `Eres un experto Project Manager GHL (Arquitecto de Implementación). 
+Tu objetivo es convertir un Roadmap técnico en una estructura de proyecto por fases/semanas ejecutable, siguiendo los estándares de nomenclatura y fases del mapper.
+
+### ESTÁNDARES DE IMPLEMENTACIÓN:
+${mapperSkill || 'Usa fases lógicas: Setup -> Pipelines -> Workflows -> Testing.'}
               
 DEBES responder con un objeto JSON con esta estructura exacta:
 {
   "weeks": [
     {
       "weekNumber": 1,
-      "name": "Título de la Fase/Semana",
-      "focus": "Objetivo principal",
+      "name": "Fase 1 — Setup base + Arquitectura MVP",
+      "focus": "Objetivo principal de esta semana/fase",
       "tasks": [
         {
-          "name": "Nombre de la tarea",
-          "description": "Explicación técnica clara",
+          "name": "Nombre de la tarea específica",
+          "description": "Explicación técnica clara de qué se hará en GHL",
           "estimate": "2h"
         }
       ]
     }
-  ]
+  ],
+  "totalDuration": "8 semanas",
+  "totalTasks": 36,
+  "totalHours": 120
 }
 
-IMPORTANTE: 
-- Crea entre 4 y 12 semanas según la complejidad.
-- Cada tarea debe ser específica para GHL (Workflows, Pipelines, Custom Fields, etc.)
-- Responde solo el JSON.`
+REGLAS CRÍTICAS: 
+- La estructura debe seguir un orden lógico de implementación GHL (Setup, CRM, Automatizaciones, Integraciones, Reporting, Go-Live).
+- Crea entre 4 y 12 semanas según la complejidad. Si el proyecto es complejo, usa 8-12 semanas.
+- Utiliza nombres de fase profesionales como: "Fase 2 — Captura de leads + UTMs/Attribution", "Fase 3 — WhatsApp API inbound + Conversational AI".
+- Cada tarea debe ser específica para GHL.
+- Calcula el total de horas estimadas y tareas de forma realista.
+- Responde ÚNICAMENTE el JSON.`
       },
       {
         role: 'user',
@@ -172,7 +202,10 @@ IMPORTANTE:
 
   // Normalización para asegurar que siempre haya semanas
   return {
-    weeks: data.weeks || data.semanas || []
+    weeks: data.weeks || data.semanas || [],
+    totalDuration: data.totalDuration || `${(data.weeks || []).length} semanas`,
+    totalTasks: data.totalTasks || (data.weeks || []).reduce((acc, w) => acc + (w.tasks?.length || 0), 0),
+    totalHours: data.totalHours || (data.weeks || []).reduce((acc, w) => acc + (w.tasks?.reduce((tAcc, t) => tAcc + parseInt(t.estimate || 0), 0) || 0), 0)
   };
 }
 
@@ -212,12 +245,20 @@ export async function generateQuotation(analysis, projectStructure, apiKey = nul
 
 export async function generateGHLDocumentation(analysis, projectStructure, answers, apiKey = null) {
   const client = getOpenAI(apiKey);
+  const mapperSkill = getSkillPrompt('ghl-onboarding-mapper');
   const roadmap = analysis.roadmap || JSON.stringify(analysis);
 
   const response = await client.chat.completions.create({
     model: AI_MODEL,
     messages: [
-      { role: 'system', content: 'Genera documentación técnica en Markdown basada en el roadmap y estructura del proyecto.' },
+      {
+        role: 'system',
+        content: `Genera documentación técnica en Markdown basada en el roadmap y estructura del proyecto. 
+        Asegúrate de seguir los estándares de nomenclatura (LS/SP/AP) definidos en la metodología.
+        
+        ### ESTÁNDARES:
+        ${mapperSkill || 'Usa nomenclatura estándar GHL.'}`
+      },
       {
         role: 'user',
         content: `Roadmap:\n${roadmap}\n\nEstructura:\n${JSON.stringify(projectStructure)}`

@@ -11,16 +11,17 @@ const projectType = ref('automation')
 const isCreating = ref(false)
 const isApproving = ref(false)
 const projectDocumentation = ref('')
+const isEditingBlueprint = ref(false)
 const allProjects = ref([])
 const showSelector = ref(false)
 
-const projectTypes = [
-  { value: 'automation', label: 'CRM & Automatización', weeks: 4, price: 1500 },
-  { value: 'leads', label: 'Generación de Leads', weeks: 6, price: 2500 },
-  { value: 'full', label: 'Ecosistema Completo', weeks: 12, price: 5000 }
-]
-
 const weeks = ref([])
+const projectAnalysis = ref(null)
+const totalTasks = ref(0)
+const totalHours = ref(0)
+const totalDuration = ref('')
+const projectQuotation = ref(null)
+const isGeneratingQuote = ref(false)
 
 const getSettings = () => {
   const saved = localStorage.getItem('ghl-settings')
@@ -53,12 +54,21 @@ const setWeeks = (rawWeeks) => {
     tasks: (w.tasks || []).map((t, tIdx) => ({
       id: t.id || (wIdx + 1) * 100 + (tIdx + 1),
       name: t.name,
-      hours: t.hours || (t.estimate ? parseInt(t.estimate) : 1),
+      hours: typeof t.hours === 'number' ? t.hours : (t.estimate ? parseInt(t.estimate) : 1),
       completed: t.completed || false,
       description: t.description || '',
       metadata: t.metadata || {}
     }))
   }))
+  updateStats()
+}
+
+const updateStats = () => {
+  totalTasks.value = weeks.value.reduce((total, week) => total + week.tasks.length, 0)
+  totalHours.value = weeks.value.reduce((total, week) => {
+    return total + week.tasks.reduce((wTotal, task) => wTotal + task.hours, 0)
+  }, 0)
+  totalDuration.value = `${weeks.value.length}`
 }
 
 const loadProject = async () => {
@@ -101,6 +111,12 @@ const loadProject = async () => {
       
       if (project.projectType) projectType.value = project.projectType
       projectAnalysis.value = project.analysis || getLocalAnalysis(projectId)
+      projectDocumentation.value = project.documentation || ''
+      
+      // Auto-generate quotation if missing but we have structure
+      if (weeks.value.length > 0) {
+        generateQuotation()
+      }
     } else {
       throw new Error('Project data incomplete in API')
     }
@@ -133,7 +149,8 @@ const saveProjectState = async (newStatus = null) => {
   const data = {
     name: clientName.value,
     weeks: weeks.value,
-    projectType: projectType.value
+    projectType: projectType.value,
+    documentation: projectDocumentation.value
   }
   if (newStatus) data.status = newStatus
 
@@ -144,8 +161,9 @@ const saveProjectState = async (newStatus = null) => {
   }
 }
 
-watch([clientName, projectType, weeks], () => {
+watch([clientName, weeks, projectDocumentation], () => {
   saveProjectState()
+  updateStats()
 }, { deep: true })
 
 onMounted(() => {
@@ -216,16 +234,6 @@ const addWeek = () => {
   })
 }
 
-const getTotalHours = () => {
-  return weeks.value.reduce((total, week) => {
-    return total + week.tasks.reduce((wTotal, task) => wTotal + task.hours, 0)
-  }, 0)
-}
-
-const getTotalTasks = () => {
-  return weeks.value.reduce((total, week) => total + week.tasks.length, 0)
-}
-
 const generateBlueprint = async () => {
   const projectId = route.params.id
   if (!projectId || !projectAnalysis.value) {
@@ -270,6 +278,13 @@ const generateBlueprint = async () => {
 const copyDocumentation = () => {
   navigator.clipboard.writeText(projectDocumentation.value)
   alert('📋 ¡Blueprint copiado al portapapeles!')
+}
+
+const deleteBlueprint = () => {
+  if (confirm('¿Estás seguro de que deseas eliminar el Blueprint técnico? Esta acción no se puede deshacer.')) {
+    projectDocumentation.value = ''
+    saveProjectState()
+  }
 }
 
 const renderMarkdown = (text) => {
@@ -319,6 +334,7 @@ const sendToClickUp = async () => {
   try {
     const projectData = {
       clientName: clientName.value,
+      documentation: projectDocumentation.value,
       weeks: weeks.value.map(w => ({
         name: w.name,
         tasks: w.tasks.map(t => ({
@@ -357,6 +373,20 @@ const sendToClickUp = async () => {
     sendingToClickUp.value = false
   }
 }
+const generateQuotation = async () => {
+  const projectId = route.params.id
+  if (!projectId || !projectAnalysis.value) return
+
+  isGeneratingQuote.value = true
+  try {
+    const quote = await api.quotation(projectAnalysis.value, weeks.value, projectId)
+    projectQuotation.value = quote
+  } catch (error) {
+    console.warn('Error generating quotation:', error)
+  } finally {
+    isGeneratingQuote.value = false
+  }
+}
 </script>
 
 <template>
@@ -378,30 +408,23 @@ const sendToClickUp = async () => {
     </div>
 
     <!-- Header -->
-    <div v-if="!showSelector" class="builder-header">
+    <div v-if="!showSelector" class="builder-header premium-header">
       <div class="project-info">
-        <input 
-          v-model="clientName"
-          class="project-name-input"
-          placeholder="Nombre del Cliente"
-        />
-        <select v-model="projectType" class="project-type-select">
-          <option v-for="type in projectTypes" :key="type.value" :value="type.value">
-            {{ type.label }} ({{ type.weeks }} semanas - ${{ type.price.toLocaleString() }})
-          </option>
-        </select>
+        <div class="client-badge">
+          {{ clientName }} (cliente final)
+        </div>
       </div>
       <div class="project-stats">
         <div class="stat">
-          <span class="stat-number">{{ weeks.length }}</span>
+          <span class="stat-number cyan-glow">{{ totalDuration }}</span>
           <span class="stat-label">Semanas</span>
         </div>
         <div class="stat">
-          <span class="stat-number">{{ getTotalTasks() }}</span>
+          <span class="stat-number cyan-glow">{{ totalTasks }}</span>
           <span class="stat-label">Tareas</span>
         </div>
         <div class="stat">
-          <span class="stat-number">{{ getTotalHours() }}h</span>
+          <span class="stat-number cyan-glow">{{ totalHours }}h</span>
           <span class="stat-label">Horas Est.</span>
         </div>
       </div>
@@ -452,6 +475,46 @@ const sendToClickUp = async () => {
 
       <!-- Right: Config & Preview -->
       <div class="config-panel">
+        <!-- Quotation Section -->
+        <div class="config-section quote-section fadeIn">
+          <div class="section-header">
+            <h3>💰 Cotización Estratégica</h3>
+            <button 
+              class="btn btn-secondary btn-sm" 
+              @click="generateQuotation"
+              :disabled="isGeneratingQuote"
+            >
+              {{ isGeneratingQuote ? 'Calculando...' : 'Recalcular' }}
+            </button>
+          </div>
+          
+          <div v-if="projectQuotation" class="quote-content">
+            <div class="quote-stat-row">
+              <div class="quote-stat">
+                <span class="q-label">Inversión Setup</span>
+                <span class="q-value">${{ projectQuotation.investment?.toLocaleString() || '0' }}</span>
+              </div>
+              <div class="quote-stat">
+                <span class="q-label">ROI Est.</span>
+                <span class="q-value green">{{ projectQuotation.roi?.multiplier || '3-5' }}x</span>
+              </div>
+            </div>
+            
+            <div class="quote-solutions">
+              <div v-for="(sol, i) in projectQuotation.solutions?.slice(0, 3)" :key="i" class="sol-item">
+                <span class="sol-dot"></span>
+                {{ sol.name || sol }}
+              </div>
+            </div>
+
+            <div v-if="projectQuotation.html" class="quote-preview-box" v-html="projectQuotation.html"></div>
+          </div>
+          <div v-else class="quote-empty">
+            <span v-if="isGeneratingQuote" class="loading-spinner"></span>
+            <p v-else>Generando cálculos de inversión...</p>
+          </div>
+        </div>
+
         <!-- Tags -->
         <div class="config-section">
           <h3>🏷️ Tags del Proyecto</h3>
@@ -558,13 +621,25 @@ const sendToClickUp = async () => {
     </div>
 
     <!-- Technical Blueprint Preview (Shows after approval) -->
-    <div v-if="projectDocumentation" class="blueprint-section">
+    <div v-if="projectDocumentation || isEditingBlueprint" class="blueprint-section fadeIn">
       <div class="panel-header">
-        <h2>📘 Blueprint Técnico Generado</h2>
-        <button class="btn btn-secondary btn-sm" @click="copyDocumentation">Copiar Markdown</button>
+        <h2>📘 Blueprint Técnico GHL</h2>
+        <div class="header-actions">
+          <button class="btn btn-secondary btn-sm" @click="isEditingBlueprint = !isEditingBlueprint">
+            {{ isEditingBlueprint ? '💾 Guardar' : '✏️ Editar' }}
+          </button>
+          <button class="btn btn-secondary btn-sm" @click="copyDocumentation" v-if="!isEditingBlueprint">📋 Copiar</button>
+          <button class="btn btn-danger btn-sm" @click="deleteBlueprint">🗑️ Borrar</button>
+        </div>
       </div>
       <div class="blueprint-content">
-        <div class="blueprint-markdown" v-html="renderMarkdown(projectDocumentation)"></div>
+        <div v-if="!isEditingBlueprint" class="blueprint-markdown" v-html="renderMarkdown(projectDocumentation)"></div>
+        <textarea 
+          v-else 
+          v-model="projectDocumentation" 
+          class="blueprint-textarea"
+          placeholder="Escribe el blueprint técnico aquí..."
+        ></textarea>
       </div>
     </div>
   </div>
@@ -637,14 +712,29 @@ const sendToClickUp = async () => {
 }
 
 /* Header */
-.builder-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 20px 24px;
+.premium-header {
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 24px 40px;
+  margin-bottom: 24px;
+}
+
+.client-badge {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: #fff;
+  font-size: 15px;
+}
+
+.cyan-glow {
+  color: #00f5ff;
+  text-shadow: 0 0 15px rgba(0, 245, 255, 0.4);
 }
 
 .project-info {
@@ -684,9 +774,10 @@ const sendToClickUp = async () => {
 
 .stat-number {
   display: block;
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--accent);
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 4px;
 }
 
 .stat-label {
@@ -1081,6 +1172,26 @@ const sendToClickUp = async () => {
   font-family: 'Inter', system-ui, sans-serif;
 }
 
+.blueprint-textarea {
+  width: 100%;
+  min-height: 500px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 24px;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.blueprint-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: rgba(0,0,0,0.5);
+}
+
 .blueprint-markdown :deep(h1), 
 .blueprint-markdown :deep(h2), 
 .blueprint-markdown :deep(h3) {
@@ -1109,5 +1220,94 @@ const sendToClickUp = async () => {
   overflow-x: auto;
   margin: 16px 0;
   border: 1px solid var(--glass-border);
+}
+.quote-section {
+  border: 1px solid rgba(0, 245, 255, 0.2);
+  background: linear-gradient(135deg, rgba(0, 245, 255, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.quote-stat-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.quote-stat {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 12px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+}
+
+.q-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.q-value {
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.q-value.green {
+  color: var(--success);
+}
+
+.quote-solutions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.sol-item {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sol-dot {
+  width: 6px;
+  height: 6px;
+  background: #00f5ff;
+  border-radius: 50%;
+}
+
+.quote-preview-box {
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  font-size: 12px;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid var(--glass-border);
+}
+
+.quote-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.fadeIn {
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

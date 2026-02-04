@@ -13,7 +13,16 @@ export const api = {
         fetch(`${API_BASE_URL}/api/projects`).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error al obtener proyectos');
+
+            // Sync with localStorage for consistency
+            if (data && data.length > 0) {
+                localStorage.setItem('projects', JSON.stringify(data));
+            }
             return data;
+        }).catch(err => {
+            console.warn('API Error, falling back to localStorage:', err);
+            const local = localStorage.getItem('projects');
+            return local ? JSON.parse(local) : [];
         }),
 
     getProject: (id) =>
@@ -21,6 +30,15 @@ export const api = {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Proyecto no encontrado');
             return data;
+        }).catch(err => {
+            console.warn('API Error, falling back to localStorage for project:', id);
+            const local = localStorage.getItem('projects');
+            if (local) {
+                const projects = JSON.parse(local);
+                const project = projects.find(p => p.id === id);
+                if (project) return project;
+            }
+            throw err;
         }),
 
     createProject: (projectData) =>
@@ -31,6 +49,14 @@ export const api = {
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error al crear proyecto');
+
+            // Sync with localStorage
+            const local = localStorage.getItem('projects');
+            const projects = local ? JSON.parse(local) : [];
+            const newProject = { ...projectData, id: data.id, createdAt: new Date().toISOString() };
+            projects.unshift(newProject);
+            localStorage.setItem('projects', JSON.stringify(projects));
+
             return data;
         }),
 
@@ -42,6 +68,18 @@ export const api = {
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error al actualizar proyecto');
+
+            // Sync with localStorage
+            const local = localStorage.getItem('projects');
+            if (local) {
+                const projects = JSON.parse(local);
+                const index = projects.findIndex(p => p.id === id);
+                if (index !== -1) {
+                    projects[index] = { ...projects[index], ...projectData, updatedAt: new Date().toISOString() };
+                    localStorage.setItem('projects', JSON.stringify(projects));
+                }
+            }
+
             return data;
         }),
 
@@ -51,6 +89,15 @@ export const api = {
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error al eliminar proyecto');
+
+            // Sync with localStorage
+            const local = localStorage.getItem('projects');
+            if (local) {
+                const projects = JSON.parse(local);
+                const filtered = projects.filter(p => p.id !== id);
+                localStorage.setItem('projects', JSON.stringify(filtered));
+            }
+
             return data;
         }),
 
@@ -75,6 +122,15 @@ export const api = {
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error analizando transcripción');
+
+            // Sync with localStorage
+            const local = localStorage.getItem('projects');
+            const projects = local ? JSON.parse(local) : [];
+            if (!projects.some(p => p.id === data.id)) {
+                projects.unshift({ ...data, createdAt: new Date().toISOString() });
+                localStorage.setItem('projects', JSON.stringify(projects));
+            }
+
             return data;
         });
     },

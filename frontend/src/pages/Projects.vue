@@ -155,6 +155,9 @@ const deleteProject = async (id) => {
           <button class="action-btn" @click="router.push(`/proposal/${p.id}`)">
             📄 Propuesta
           </button>
+          <button v-if="p.documentation" class="action-btn highlight-btn" @click="router.push(`/project/${p.id}`)">
+            📘 Blueprint
+          </button>
           <button class="action-btn icon-btn" @click="deleteProject(p.id)">
             🗑️
           </button>
@@ -422,6 +425,18 @@ const deleteProject = async (id) => {
 
 .icon-btn {
   flex: 0 0 48px;
+}
+
+.action-btn.highlight-btn {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #a78bfa;
+}
+
+.action-btn.highlight-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
 }
 
 .empty-state {
