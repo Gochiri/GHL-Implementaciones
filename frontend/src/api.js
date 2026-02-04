@@ -118,7 +118,20 @@ export const api = {
         });
     },
 
-    // Approve Project: Generates documentation and exports to ClickUp
+    // Generate documentation (Local Approval)
+    generateDocumentation: function (analysis, projectStructure, answers, projectId) {
+        return fetch(`${API_BASE_URL}/api/project/document`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ analysis, projectStructure, answers, projectId, apiKey: this._getOpenAIKey() })
+        }).then(async r => {
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Error generando documentación');
+            return data;
+        });
+    },
+
+    // Approve Project: Generates documentation and exports to ClickUp (Legacy)
     approveProject: function (analysis, projectStructure, answers, clickupConfig, projectId) {
         return fetch(`${API_BASE_URL}/api/project/approve`, {
             method: 'POST',

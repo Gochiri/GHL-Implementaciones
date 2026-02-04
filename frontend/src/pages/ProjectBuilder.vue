@@ -226,16 +226,13 @@ const getTotalTasks = () => {
   return weeks.value.reduce((total, week) => total + week.tasks.length, 0)
 }
 
-const approveProject = async () => {
+const generateBlueprint = async () => {
   const projectId = route.params.id
-  if (!projectId || !projectAnalysis.value) return
-  
-  const settings = getSettings() || {}
-  const clickupConfig = {
-    apiToken: settings.clickup?.apiToken || '',
-    spaceId: settings.clickup?.workspaceId || ''
+  if (!projectId || !projectAnalysis.value) {
+    alert('❌ Error: El análisis del proyecto no está cargado. Prueba recargar la página.')
+    return
   }
-
+  
   const projectData = {
     clientName: clientName.value,
     weeks: weeks.value.map(w => ({
@@ -252,34 +249,19 @@ const approveProject = async () => {
   isApproving.value = true
   
   try {
-    console.log('🚀 Aprobando proyecto y generando documentación...')
-    const result = await api.approveProject(projectAnalysis.value, projectData, [], clickupConfig, projectId)
+    console.log('🚀 Generando Blueprint Técnico...')
+    const result = await api.generateDocumentation(projectAnalysis.value, projectData, [], projectId)
     
     if (result.success) {
       projectDocumentation.value = result.documentation
-      clickupSuccess.value = true
-      
-      // Update with ClickUp details if available
-      if (result.clickup && result.clickup.tasks) {
-        weeks.value.forEach(w => {
-          w.tasks.forEach(t => {
-            const remote = result.clickup.tasks.find(rt => rt.name === t.name)
-            if (remote) {
-              t.clickupId = remote.id
-              t.clickupUrl = remote.url
-            }
-          })
-        })
-      }
-      
       await saveProjectState('approved')
-      alert('🚀 ¡Proyecto aprobado y exportado exitosamente! Se ha generado el Blueprint Técnico.')
+      alert('🚀 ¡Blueprint Técnico generado exitosamente!')
     } else {
       throw new Error(result.error || 'Error desconocido')
     }
   } catch (error) {
-    console.error('❌ Error en aprobación:', error)
-    alert(`❌ Error al procesar aprobación: ${error.message}`)
+    console.error('❌ Error en generación de blueprint:', error)
+    alert(`❌ Error al generar blueprint: ${error.message}`)
   } finally {
     isApproving.value = false
   }
@@ -525,11 +507,11 @@ const sendToClickUp = async () => {
             <div class="action-buttons">
               <button 
                 class="btn btn-primary approve-btn pulse-btn"
-                @click="approveProject"
+                @click="generateBlueprint"
                 :disabled="isApproving || sendingToClickUp"
               >
                 <span v-if="isApproving" class="loading-spinner"></span>
-                {{ isApproving ? 'Documentando...' : '🔥 Aprobar e Instalar SOP' }}
+                {{ isApproving ? 'Generando...' : '📄 Generar Blueprint Técnico' }}
               </button>
 
               <button 
@@ -538,7 +520,7 @@ const sendToClickUp = async () => {
                 :disabled="sendingToClickUp || isApproving"
               >
                 <span v-if="sendingToClickUp" class="loading-spinner"></span>
-                {{ sendingToClickUp ? 'Exportando...' : 'Exportar (Solo Tareas)' }}
+                {{ sendingToClickUp ? 'Exportando...' : '🚀 Exportar a ClickUp' }}
               </button>
             </div>
           </div>

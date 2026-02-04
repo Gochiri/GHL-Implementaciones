@@ -188,12 +188,12 @@ app.post('/api/analyze', async (req, res) => {
     // Auto-create project record
     const id = uuidv4();
     if (db) {
-        const stmt = db.prepare(`
+      const stmt = db.prepare(`
         INSERT INTO projects (id, name, clientName, niche, complexity, analysis, status)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
 
-        stmt.run(
+      stmt.run(
         id,
         analysis.clientName || 'Nuevo Proyecto',
         analysis.clientName,
@@ -201,7 +201,7 @@ app.post('/api/analyze', async (req, res) => {
         analysis.complexity,
         JSON.stringify(analysis),
         'analysis'
-        );
+      );
     }
 
     res.json({ ...analysis, id });
@@ -234,7 +234,7 @@ app.post('/api/hormozi', async (req, res) => {
 app.post('/api/skills', async (req, res) => {
   try {
     const { skillName, input, apiKey } = req.body;
-    
+
     if (!skillName || !input) {
       return res.status(400).json({ error: 'skillName and input are required' });
     }
@@ -283,7 +283,30 @@ app.post('/api/quotation', async (req, res) => {
   }
 });
 
-// Project Approval Flow
+// Project Approval Flow (Now separated from ClickUp)
+app.post('/api/project/document', async (req, res) => {
+  try {
+    const { analysis, projectStructure, answers, projectId, apiKey } = req.body;
+
+    const documentation = await generateGHLDocumentation(analysis, projectStructure, answers, apiKey);
+
+    if (projectId && db) {
+      db.prepare('UPDATE projects SET documentation = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(documentation, 'approved', projectId);
+    }
+
+    res.json({
+      success: true,
+      message: 'Proyecto documentado y aprobado localmente',
+      documentation
+    });
+  } catch (error) {
+    console.error('❌ Documentation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Original approve endpoint (kept for backward compatibility or if needed)
 app.post('/api/project/approve', async (req, res) => {
   try {
     const { analysis, projectStructure, answers, clickupConfig, projectId, apiKey } = req.body;
@@ -347,12 +370,12 @@ app.post('/api/webhook/ghl', async (req, res) => {
     const id = Date.now().toString();
 
     if (db) {
-        const stmt = db.prepare(`
+      const stmt = db.prepare(`
         INSERT INTO webhooks (id, contact, stage, message)
         VALUES (?, ?, ?, ?)
         `);
 
-        stmt.run(id, JSON.stringify(contact || { name: 'Lead Desconocido' }), pipeline_stage || 'Review', message || '');
+      stmt.run(id, JSON.stringify(contact || { name: 'Lead Desconocido' }), pipeline_stage || 'Review', message || '');
     }
 
     res.json({ success: true, id });

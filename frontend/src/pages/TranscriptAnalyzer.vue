@@ -139,13 +139,17 @@ const analyzeTranscript = async () => {
       // Try real API - returns { ...analysis, id }
       const result = await api.analyze(transcript.value)
       analysis.value = {
-        id: result.id, // Store the project ID
+        id: result.id,
         clientName: result.clientName || result.nombre_cliente || 'Cliente',
         niche: result.niche || result.nicho || 'N/A',
-        painPoints: result.painPoints || result.dolores || [],
+        painPoints: (result.painPoints || result.dolores || []).map((p, i) => 
+          typeof p === 'string' ? { id: i, text: p, severity: 'medium', category: 'General' } : p
+        ),
         complexity: result.complexity || result.complejidad || 5,
         implementationType: result.implementationType || result.tipo_implementacion || 'Setup GHL',
-        objectives: result.objectives || result.objetivos || [],
+        objectives: (result.objectives || result.objetivos || []).map((o, i) => 
+          typeof o === 'string' ? { id: i, text: o } : o
+        ),
         currentSituation: result.currentSituation || result.situacion_actual || ''
       }
       
@@ -160,6 +164,8 @@ const analyzeTranscript = async () => {
     const dummyId = 'proj-' + Date.now()
     analysis.value = {
       id: dummyId,
+      clientName: 'Nuevo Cliente',
+      niche: 'GHL Implementation',
       painPoints: mockPainPoints,
       complexity: 7,
       implementationType: 'Automatización + CRM Setup',
@@ -287,16 +293,25 @@ const saveAndRedirect = async () => {
 
   // Generate project structure via API
   try {
-    // This call will trigger the backend to generate and save the weeks to SQLite
     const structure = await api.projectStructure(analysis.value, previousAnswers.value, analysis.value.id)
     
-    if (structure && structure.weeks) {
+    if (structure && structure.weeks && structure.weeks.length > 0) {
       console.log('✅ Estructura generada y guardada en BD (si disponible).')
-      // Backup to localStorage for DB-less environments
       localStorage.setItem(`project-weeks-${analysis.value.id}`, JSON.stringify(structure.weeks))
+    } else {
+      throw new Error('La API no devolvió semanas. Generando estructura básica...')
     }
   } catch (error) {
-    console.error('Error generating project structure:', error)
+    console.warn('Error generating project structure, using basic fallback:', error)
+    // Basic fallback structure so the next screen isn't empty
+    const fallbackWeeks = [
+      { name: 'Semana 1: Setup Bases', tasks: [{ name: 'Configurar Subcuenta GHL', hours: 2 }, { name: 'Dominio y Email', hours: 1 }] },
+      { name: 'Semana 2: CRM & Pipelines', tasks: [{ name: 'Configurar Pipeline Ventas', hours: 3 }, { name: 'Custom Fields', hours: 2 }] },
+      { name: 'Semana 3: Automatizaciones', tasks: [{ name: 'Workflow Captura Leads', hours: 4 }] },
+      { name: 'Semana 4: Entrega & Feed', tasks: [{ name: 'Testing Final', hours: 2 }, { name: 'Sesión Capacitación', hours: 2 }] }
+    ]
+    localStorage.setItem(`project-weeks-${analysis.value.id}`, JSON.stringify(fallbackWeeks))
+    alert('Aviso: La IA no pudo generar las tareas detalladas. Se ha cargado una estructura base.')
   } finally {
     isGenerating.value = false
   }
