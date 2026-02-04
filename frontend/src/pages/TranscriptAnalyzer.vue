@@ -271,7 +271,12 @@ const finishChat = () => {
   }
 }
 
+const isGenerating = ref(false)
+
 const saveAndRedirect = async () => {
+  if (isGenerating.value) return
+  isGenerating.value = true
+  
   // Save analysis with full state
   localStorage.setItem('last-analysis', JSON.stringify({
     ...analysis.value,
@@ -290,6 +295,8 @@ const saveAndRedirect = async () => {
     }
   } catch (error) {
     console.error('Error generating project structure:', error)
+  } finally {
+    isGenerating.value = false
   }
 
   // Redirect to Project Builder - it will load from the ID
@@ -423,8 +430,13 @@ const getSeverityClass = (severity) => {
         </div>
 
         <div class="direct-actions">
-           <button class="btn btn-luxury btn-generate-direct" @click="finishChat">
-              Generar Proyecto 🔥
+           <button 
+             class="btn btn-luxury btn-generate-direct" 
+             @click="finishChat"
+             :disabled="isGenerating"
+           >
+              <span v-if="isGenerating" class="loading-spinner"></span>
+              {{ isGenerating ? 'Generando...' : 'Generar Proyecto 🔥' }}
             </button>
         </div>
       </div>
