@@ -290,8 +290,10 @@ const saveAndRedirect = async () => {
     // This call will trigger the backend to generate and save the weeks to SQLite
     const structure = await api.projectStructure(analysis.value, previousAnswers.value, analysis.value.id)
     
-    if (structure) {
-      console.log('✅ Estructura generada y guardada en BD.')
+    if (structure && structure.weeks) {
+      console.log('✅ Estructura generada y guardada en BD (si disponible).')
+      // Backup to localStorage for DB-less environments
+      localStorage.setItem(`project-weeks-${analysis.value.id}`, JSON.stringify(structure.weeks))
     }
   } catch (error) {
     console.error('Error generating project structure:', error)

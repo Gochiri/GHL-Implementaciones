@@ -47,7 +47,7 @@ export const api = {
     },
 
     // Analyze transcript - now returns the project ID created in backend
-    analyze: function(transcript) {
+    analyze: function (transcript) {
         return fetch(`${API_BASE_URL}/api/analyze`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -60,11 +60,11 @@ export const api = {
     },
 
     // Hormozi questioning
-    hormozi: function(context, previousAnswers, projectId) {
+    hormozi: function (context, previousAnswers, projectId) {
         return fetch(`${API_BASE_URL}/api/hormozi`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context, previousAnswers, projectId, apiKey: this._getOpenAIKey() }) 
+            body: JSON.stringify({ context, previousAnswers, projectId, apiKey: this._getOpenAIKey() })
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error en el asistente');
@@ -73,11 +73,11 @@ export const api = {
     },
 
     // Generate project structure
-    projectStructure: function(analysis, answers, projectId) {
+    projectStructure: function (analysis, answers, projectId) {
         return fetch(`${API_BASE_URL}/api/project-structure`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ analysis, answers, projectId, apiKey: this._getOpenAIKey() }) 
+            body: JSON.stringify({ analysis, answers, projectId, apiKey: this._getOpenAIKey() })
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error generando estructura de proyecto');
@@ -86,11 +86,11 @@ export const api = {
     },
 
     // Generate quotation
-    quotation: function(analysis, projectStructure, projectId) {
+    quotation: function (analysis, projectStructure, projectId) {
         return fetch(`${API_BASE_URL}/api/quotation`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ analysis, projectStructure, projectId, apiKey: this._getOpenAIKey() }) 
+            body: JSON.stringify({ analysis, projectStructure, projectId, apiKey: this._getOpenAIKey() })
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error generando cotización');
@@ -99,11 +99,11 @@ export const api = {
     },
 
     // Approve Project: Generates documentation and exports to ClickUp
-    approveProject: function(analysis, projectStructure, answers, clickupConfig, projectId) {
+    approveProject: function (analysis, projectStructure, answers, clickupConfig, projectId) {
         return fetch(`${API_BASE_URL}/api/project/approve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ analysis, projectStructure, answers, clickupConfig, projectId, apiKey: this._getOpenAIKey() }) 
+            body: JSON.stringify({ analysis, projectStructure, answers, clickupConfig, projectId, apiKey: this._getOpenAIKey() })
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error aprobando y exportando proyecto');
@@ -140,5 +140,16 @@ export const api = {
             body: JSON.stringify({ apiKey, model })
         }).then(r => r.json()),
 
-    getWebhooks: () => fetch(`${API_BASE_URL}/api/webhooks`).then(r => r.json())
+    getWebhooks: () => fetch(`${API_BASE_URL}/api/webhooks`).then(r => r.json()),
+
+    createClickUpProject: (projectData, clickupConfig) =>
+        fetch(`${API_BASE_URL}/api/clickup/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectData, clickupConfig })
+        }).then(async r => {
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Error creando proyecto en ClickUp');
+            return data;
+        })
 };

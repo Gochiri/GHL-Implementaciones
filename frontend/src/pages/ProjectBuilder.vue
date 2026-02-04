@@ -14,6 +14,12 @@ const projectDocumentation = ref('')
 const allProjects = ref([])
 const showSelector = ref(false)
 
+const projectTypes = [
+  { value: 'automation', label: 'CRM & Automatización', weeks: 4, price: 1500 },
+  { value: 'leads', label: 'Generación de Leads', weeks: 6, price: 2500 },
+  { value: 'full', label: 'Ecosistema Completo', weeks: 12, price: 5000 }
+]
+
 const weeks = ref([])
 
 const getSettings = () => {
@@ -26,6 +32,33 @@ const getSettings = () => {
     }
   }
   return {}
+}
+
+const getLocalAnalysis = (id) => {
+  const saved = localStorage.getItem('last-analysis')
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved)
+      if (parsed.id === id) return parsed
+    } catch (e) {}
+  }
+  return null
+}
+
+const setWeeks = (rawWeeks) => {
+  weeks.value = (rawWeeks || []).map((w, wIdx) => ({
+    id: w.id || wIdx + 1,
+    name: w.name || w.weekNumber,
+    collapsed: false,
+    tasks: (w.tasks || []).map((t, tIdx) => ({
+      id: t.id || (wIdx + 1) * 100 + (tIdx + 1),
+      name: t.name,
+      hours: t.hours || (t.estimate ? parseInt(t.estimate) : 1),
+      completed: t.completed || false,
+      description: t.description || '',
+      metadata: t.metadata || {}
+    }))
+  }))
 }
 
 const loadProject = async () => {
@@ -54,29 +87,37 @@ const loadProject = async () => {
       
       // Normalize weeks from backend (if they are simple objects, convert to frontend format)
       if (project.weeks && project.weeks.length > 0) {
-        weeks.value = project.weeks.map((w, wIdx) => ({
-          id: w.id || wIdx + 1,
-          name: w.name,
-          collapsed: false,
-          tasks: (w.tasks || []).map((t, tIdx) => ({
-            id: t.id || (wIdx + 1) * 100 + (tIdx + 1),
-            name: t.name,
-            hours: t.hours || 1,
-            completed: t.completed || false,
-            description: t.description || '',
-            metadata: t.metadata || {}
-          }))
-        }))
+        setWeeks(project.weeks)
       } else {
-        weeks.value = []
+        // Fallback to localStorage weeks
+        const savedWeeks = localStorage.getItem(`project-weeks-${projectId}`)
+        if (savedWeeks) {
+          setWeeks(JSON.parse(savedWeeks))
+        } else {
+          weeks.value = []
+        }
       }
       
       if (project.projectType) projectType.value = project.projectType
-      projectAnalysis.value = project.analysis // Store analysis for later calls
+      projectAnalysis.value = project.analysis || getLocalAnalysis(projectId)
     }
   } catch (error) {
-    console.error('Project not found:', projectId)
-    showSelector.value = true
+    console.warn('Project not found in API, checking localStorage:', projectId)
+    
+    // Fallback: Check if we have the analysis in localStorage
+    const localAnalysis = getLocalAnalysis(projectId)
+    if (localAnalysis) {
+      showSelector.value = false
+      clientName.value = localAnalysis.clientName || 'Cliente'
+      projectAnalysis.value = localAnalysis
+      
+      const savedWeeks = localStorage.getItem(`project-weeks-${projectId}`)
+      if (savedWeeks) {
+        setWeeks(JSON.parse(savedWeeks))
+      }
+    } else {
+      showSelector.value = true
+    }
   }
 }
 
