@@ -4,7 +4,14 @@
       "Bash(if not exist \"c:\\\\Users\\\\germa\\\\OneDrive\\\\Documents\\\\GHL Implementaciones\\\\.claude\" mkdir \"c:\\\\Users\\\\germa\\\\OneDrive\\\\Documents\\\\GHL Implementaciones\\\\.claude\")",
       "Bash(npm install)",
       "Bash(npm run dev:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git fetch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(git merge:*)"
     ]
   }
 }

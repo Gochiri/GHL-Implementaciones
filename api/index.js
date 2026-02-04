@@ -10,6 +10,7 @@ import {
   generateQuotation,
   generateGHLDocumentation
 } from './services/ai-analyzer.js';
+import { executeSkill } from './services/skill-service.js';
 import { createClickUpProject, updateTaskStatus } from './services/clickup-service.js';
 import { extractTextFromFile } from './services/file-service.js';
 import db from './db.js';
@@ -229,6 +230,23 @@ app.post('/api/hormozi', async (req, res) => {
   }
 });
 
+// Execute Skill (SaaS Integration)
+app.post('/api/skills', async (req, res) => {
+  try {
+    const { skillName, input, apiKey } = req.body;
+    
+    if (!skillName || !input) {
+      return res.status(400).json({ error: 'skillName and input are required' });
+    }
+
+    const result = await executeSkill(skillName, input, apiKey);
+    res.json(result);
+  } catch (error) {
+    console.error(`Skill ${req.body.skillName} error:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Generate project structure
 app.post('/api/project-structure', async (req, res) => {
   try {
@@ -399,10 +417,13 @@ app.post('/api/clickup/test', async (req, res) => {
 
 app.get('/api/config/status', (req, res) => {
   const openaiKey = process.env.OPENAI_API_KEY || '';
+  const anthropicKey = process.env.ANTHROPIC_API_KEY || '';
   res.json({
     openai: !!openaiKey,
     openai_key_length: openaiKey.length,
     openai_key_prefix: openaiKey ? openaiKey.substring(0, 7) + '...' : 'NOT SET',
+    anthropic: !!anthropicKey,
+    anthropic_key_length: anthropicKey.length,
     clickup: !!process.env.CLICKUP_API_TOKEN,
     model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
     node_env: process.env.NODE_ENV || 'not set'
