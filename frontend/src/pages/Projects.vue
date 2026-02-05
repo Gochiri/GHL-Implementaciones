@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { api } from '../api.js'
 import { PROJECT_STATUSES, getStatusLabel, getStatusClass, healProjectStatus } from '../utils/status-utils.js'
 
 const router = useRouter()
@@ -14,9 +15,12 @@ const statuses = [
 ]
 
 onMounted(async () => {
+  let apiProjects = []
+  
+  // Try API first
   try {
     const data = await api.getProjects()
-    projects.value = data.map(p => {
+    apiProjects = data.map(p => {
       const { healedProject } = healProjectStatus(p)
       return {
         ...healedProject,
@@ -24,8 +28,31 @@ onMounted(async () => {
       }
     })
   } catch (error) {
-    console.error('Error fetching projects:', error)
+    console.warn('Error fetching API projects:', error)
   }
+  
+  // Load from localStorage as well
+  let localProjects = []
+  try {
+    const saved = localStorage.getItem('ghl-projects-list')
+    if (saved) {
+      localProjects = JSON.parse(saved).map(p => ({
+        ...p,
+        date: p.date ? new Date(p.date).toLocaleDateString() : new Date().toLocaleDateString()
+      }))
+    }
+  } catch (e) {
+    console.warn('Error loading local projects:', e)
+  }
+  
+  // Merge: API takes priority but add localStorage-only projects
+  const apiIds = new Set(apiProjects.map(p => p.id))
+  const combinedProjects = [
+    ...apiProjects,
+    ...localProjects.filter(p => !apiIds.has(p.id))
+  ]
+  
+  projects.value = combinedProjects.sort((a, b) => new Date(b.date) - new Date(a.date))
 })
 
 const updateProjectStatus = async (id, newStatus) => {

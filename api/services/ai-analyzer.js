@@ -215,10 +215,28 @@ export async function generateQuotation(analysis, projectStructure, apiKey = nul
 
   const skillPrompt = getSkillPrompt('ghl-cotizador');
   const roadmap = analysis.roadmap || JSON.stringify(analysis);
+  const weeksCount = projectStructure?.length || 4;
+  const tasksCount = projectStructure?.reduce((t, w) => t + (w.tasks?.length || 0), 0) || 10;
 
-  const systemPrompt = skillPrompt
-    ? `${skillPrompt}\n\nIMPORTANT: Return a JSON object wrapped in \`\`\`json tags with: html (the professional quote), investment (total number), timeline, solutions (array), painPoints (array), roi (object).`
-    : `Eres un experto en cotización GHL. Genera JSON con: investment, timeline, solutions, painPoints, roi, html.`;
+  const systemPrompt = `${skillPrompt || 'Eres un cotizador experto en implementaciones GHL.'}
+
+IMPORTANTE: Calcula y devuelve un JSON con estos campos EXACTOS:
+- investment: número (SOLO el costo de setup/implementación, SIN incluir fees mensuales)
+- monthlyFee: número (costo mensual de mantenimiento GHL si aplica, típicamente $97-$497)
+- timeline: string (ej: "6-8 semanas")
+- roi: objeto con { multiplier: número, description: string }
+- solutions: array de strings (máximo 5 soluciones clave)
+- painPoints: array de strings (máximo 3 dolores que resuelve)
+- html: string HTML con el desglose profesional de la cotización
+
+El JSON debe ir envuelto en \`\`\`json bloques.
+
+Referencia de precios base:
+- Setup básico CRM: $1,200 - $2,500
+- Setup con Automatizaciones: $2,500 - $5,000
+- Setup con IA Conversacional: $4,000 - $8,000
+- Por semana de trabajo: ~$800-1,200
+- Total de ${weeksCount} semanas y ${tasksCount} tareas sugiere un proyecto de complejidad media-alta.`;
 
   const response = await client.chat.completions.create({
     model: AI_MODEL,
@@ -226,7 +244,7 @@ export async function generateQuotation(analysis, projectStructure, apiKey = nul
       { role: 'system', content: systemPrompt },
       {
         role: 'user',
-        content: `Genera la cotización basada en este Roadmap:\n${roadmap}`
+        content: `Genera la cotización basada en este Roadmap:\n${roadmap}\n\nEstructura del proyecto:\n${JSON.stringify(projectStructure)}`
       }
     ],
     temperature: 0.3
@@ -240,7 +258,13 @@ export async function generateQuotation(analysis, projectStructure, apiKey = nul
   }
 
   // Fallback if no JSON blocks found
-  return { html: content, investment: 0, timeline: 'Por definir' };
+  return {
+    html: content,
+    investment: weeksCount * 800,
+    monthlyFee: 97,
+    timeline: `${weeksCount} semanas`,
+    roi: { multiplier: 3, description: 'ROI estimado' }
+  };
 }
 
 export async function generateGHLDocumentation(analysis, projectStructure, answers, apiKey = null) {

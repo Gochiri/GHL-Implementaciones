@@ -168,17 +168,58 @@ const saveProjectState = async (newStatus = null) => {
   if (!projectId) return
 
   const data = {
-    name: clientName.value,
+    id: projectId,
+    name: clientName.value || 'Nuevo Proyecto',
     weeks: weeks.value,
     projectType: projectType.value,
-    documentation: projectDocumentation.value
+    documentation: projectDocumentation.value,
+    analysis: projectAnalysis.value,
+    date: new Date().toISOString()
   }
   if (newStatus) data.status = newStatus
 
+  // Always save to localStorage for offline/fallback
+  try {
+    // Save project-specific data
+    localStorage.setItem(`project-${projectId}`, JSON.stringify(data))
+    localStorage.setItem(`project-weeks-${projectId}`, JSON.stringify(weeks.value))
+    
+    // Update project list in localStorage
+    const projectsListKey = 'ghl-projects-list'
+    let projectsList = []
+    try {
+      const saved = localStorage.getItem(projectsListKey)
+      if (saved) projectsList = JSON.parse(saved)
+    } catch (e) {}
+    
+    const existingIdx = projectsList.findIndex(p => p.id === projectId)
+    const projectSummary = {
+      id: projectId,
+      name: data.name,
+      status: data.status || 'building',
+      date: data.date,
+      weeksCount: weeks.value.length,
+      tasksCount: totalTasks.value
+    }
+    
+    if (existingIdx >= 0) {
+      projectsList[existingIdx] = projectSummary
+    } else {
+      projectsList.unshift(projectSummary)
+    }
+    localStorage.setItem(projectsListKey, JSON.stringify(projectsList))
+    
+    console.log('✅ Proyecto guardado en localStorage:', projectId)
+  } catch (e) {
+    console.warn('Error saving to localStorage:', e)
+  }
+
+  // Try API as well
   try {
     await api.updateProject(projectId, data)
+    console.log('✅ Proyecto sincronizado con API')
   } catch (error) {
-    console.error('Error saving project state:', error)
+    console.warn('API sync failed, data saved locally:', error)
   }
 }
 
@@ -517,11 +558,15 @@ const generateQuotation = async () => {
             </button>
           </div>
           
-          <div v-if="projectQuotation" class="quote-content">
+          <div v-if="projectQuotation" class="quote-content expanded">
             <div class="quote-stat-row">
-              <div class="quote-stat">
+              <div class="quote-stat primary">
                 <span class="q-label">Inversión Setup</span>
                 <span class="q-value">${{ projectQuotation.investment?.toLocaleString() || '0' }}</span>
+              </div>
+              <div class="quote-stat">
+                <span class="q-label">Fee Mensual</span>
+                <span class="q-value">${{ projectQuotation.monthlyFee?.toLocaleString() || '97' }}/mes</span>
               </div>
               <div class="quote-stat">
                 <span class="q-label">ROI Est.</span>
@@ -530,17 +575,20 @@ const generateQuotation = async () => {
             </div>
             
             <div class="quote-solutions">
-              <div v-for="(sol, i) in projectQuotation.solutions?.slice(0, 3)" :key="i" class="sol-item">
+              <div v-for="(sol, i) in projectQuotation.solutions?.slice(0, 5)" :key="i" class="sol-item">
                 <span class="sol-dot"></span>
                 {{ sol.name || sol }}
               </div>
             </div>
 
-            <div v-if="projectQuotation.html" class="quote-preview-box" v-html="projectQuotation.html"></div>
+            <details v-if="projectQuotation.html" class="quote-details">
+              <summary>📋 Ver desglose completo</summary>
+              <div class="quote-preview-box" v-html="projectQuotation.html"></div>
+            </details>
           </div>
           <div v-else class="quote-empty">
             <span v-if="isGeneratingQuote" class="loading-spinner"></span>
-            <p v-else>Generando cálculos de inversión...</p>
+            <p v-else>Haz clic en Recalcular para generar la cotización...</p>
           </div>
         </div>
 
@@ -556,17 +604,6 @@ const generateQuotation = async () => {
             >
               {{ tag.name }}
             </span>
-          </div>
-        </div>
-
-        <!-- Custom Fields -->
-        <div class="config-section">
-          <h3>📊 Custom Fields</h3>
-          <div class="fields-list">
-            <div v-for="field in customFields" :key="field.name" class="field-item">
-              <span class="field-name">{{ field.name }}</span>
-              <span class="field-type">{{ field.type }}</span>
-            </div>
           </div>
         </div>
 
