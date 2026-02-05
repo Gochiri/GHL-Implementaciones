@@ -578,7 +578,7 @@ const generateQuotation = async () => {
             <span class="success-icon">✅</span>
             <div>
               <strong>¡Proyecto creado exitosamente!</strong>
-              <p>Se han creado {{ getTotalTasks() }} tareas en ClickUp</p>
+              <p>Se han creado {{ totalTasks }} tareas en ClickUp</p>
             </div>
           </div>
           
@@ -593,7 +593,7 @@ const generateQuotation = async () => {
             </div>
             <div class="preview-item">
               <span class="preview-label">Tareas:</span>
-              <span class="preview-value">{{ getTotalTasks() }} tareas totales</span>
+              <span class="preview-value">{{ totalTasks }} tareas totales</span>
             </div>
             
             <div class="action-buttons">
