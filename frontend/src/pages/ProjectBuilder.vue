@@ -2,6 +2,7 @@
 import { ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api.js'
+import CotizacionDesglose from '../components/CotizacionDesglose.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -443,6 +444,19 @@ const generateQuotation = async () => {
   try {
     const quote = await api.quotation(projectAnalysis.value, weeks.value, projectId)
     projectQuotation.value = quote
+    
+    // Save quotation to localStorage for proposal consistency
+    try {
+      const projectKey = `project-${projectId}`
+      const savedProject = localStorage.getItem(projectKey)
+      if (savedProject) {
+        const projectData = JSON.parse(savedProject)
+        projectData.quotation = quote
+        localStorage.setItem(projectKey, JSON.stringify(projectData))
+      }
+    } catch (e) {
+      console.warn('Error saving quotation to localStorage:', e)
+    }
   } catch (error) {
     console.warn('Error generating quotation:', error)
   } finally {
@@ -559,31 +573,32 @@ const generateQuotation = async () => {
           </div>
           
           <div v-if="projectQuotation" class="quote-content expanded">
+            <!-- Quick Summary Stats -->
             <div class="quote-stat-row">
               <div class="quote-stat primary">
                 <span class="q-label">Inversión Setup</span>
-                <span class="q-value">${{ projectQuotation.investment?.toLocaleString() || '0' }}</span>
+                <span class="q-value">${{ (projectQuotation.a_la_carte?.setup || projectQuotation.investment || 0).toLocaleString() }}</span>
               </div>
               <div class="quote-stat">
                 <span class="q-label">Fee Mensual</span>
-                <span class="q-value">${{ projectQuotation.monthlyFee?.toLocaleString() || '97' }}/mes</span>
+                <span class="q-value">${{ (projectQuotation.a_la_carte?.mensual || projectQuotation.monthlyFee || 97).toLocaleString() }}/mes</span>
               </div>
               <div class="quote-stat">
                 <span class="q-label">ROI Est.</span>
                 <span class="q-value green">{{ projectQuotation.roi?.multiplier || '3-5' }}x</span>
               </div>
             </div>
-            
-            <div class="quote-solutions">
-              <div v-for="(sol, i) in projectQuotation.solutions?.slice(0, 5)" :key="i" class="sol-item">
-                <span class="sol-dot"></span>
-                {{ sol.name || sol }}
-              </div>
-            </div>
 
-            <details v-if="projectQuotation.html" class="quote-details">
+            <!-- Expandable Full Breakdown -->
+            <details class="quote-details">
               <summary>📋 Ver desglose completo</summary>
-              <div class="quote-preview-box" v-html="projectQuotation.html"></div>
+              <div class="quote-desglose-wrapper">
+                <CotizacionDesglose
+                  :client-name="clientName"
+                  :scope="projectAnalysis || {}"
+                  :cotizacion="projectQuotation"
+                />
+              </div>
             </details>
           </div>
           <div v-else class="quote-empty">
@@ -1396,6 +1411,91 @@ const generateQuotation = async () => {
   max-height: 150px;
   overflow-y: auto;
   border: 1px solid var(--glass-border);
+}
+
+.quote-desglose-wrapper {
+  margin-top: 16px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.quote-details {
+  margin-top: 12px;
+}
+
+.quote-details summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--primary-light);
+  padding: 8px 12px;
+  background: rgba(139, 92, 246, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  transition: all 0.2s;
+}
+
+.quote-details summary:hover {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.quote-details[open] summary {
+  border-radius: 8px 8px 0 0;
+  margin-bottom: 0;
+}
+
+.quote-details .quote-preview-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.quote-details .quote-preview-box h1,
+.quote-details .quote-preview-box h2,
+.quote-details .quote-preview-box h3,
+.quote-details .quote-preview-box h4 {
+  color: #fff;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.quote-details .quote-preview-box ul,
+.quote-details .quote-preview-box ol {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+
+.quote-details .quote-preview-box li {
+  margin-bottom: 4px;
+}
+
+.quote-details .quote-preview-box strong {
+  color: var(--primary-light);
+}
+
+.quote-details .quote-preview-box table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+
+.quote-details .quote-preview-box th,
+.quote-details .quote-preview-box td {
+  border: 1px solid var(--glass-border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.quote-details .quote-preview-box th {
+  background: rgba(0, 0, 0, 0.3);
+  font-weight: 600;
 }
 
 .quote-empty {

@@ -213,57 +213,332 @@ export async function generateQuotation(analysis, projectStructure, apiKey = nul
   const client = getOpenAI(apiKey);
   if (!client) throw new Error('OpenAI API key required');
 
-  const skillPrompt = getSkillPrompt('ghl-cotizador');
-  const roadmap = analysis.roadmap || JSON.stringify(analysis);
-  const weeksCount = projectStructure?.length || 4;
-  const tasksCount = projectStructure?.reduce((t, w) => t + (w.tasks?.length || 0), 0) || 10;
+  // Step 1: Use AI to extract structured scope from analysis
+  const scopePrompt = `Analiza el siguiente roadmap/análisis y extrae los módulos GHL necesarios en formato JSON estructurado.
 
-  const systemPrompt = `${skillPrompt || 'Eres un cotizador experto en implementaciones GHL.'}
+IMPORTANTE: Responde ÚNICAMENTE con JSON válido, sin markdown ni explicaciones.
 
-IMPORTANTE: Calcula y devuelve un JSON con estos campos EXACTOS:
-- investment: número (SOLO el costo de setup/implementación, SIN incluir fees mensuales)
-- monthlyFee: número (costo mensual de mantenimiento GHL si aplica, típicamente $97-$497)
-- timeline: string (ej: "6-8 semanas")
-- roi: objeto con { multiplier: número, description: string }
-- solutions: array de strings (máximo 5 soluciones clave)
-- painPoints: array de strings (máximo 3 dolores que resuelve)
-- html: string HTML con el desglose profesional de la cotización
+Estructura requerida:
+{
+  "cliente": "nombre del cliente",
+  "setup_subcuenta": "completo",
+  "pipelines": [{"nombre": "Sales Pipeline", "etapas": 7}],
+  "workflows": [{"nombre": "LS01 Widget Chat", "nodos": 8}],
+  "chatbots": [{"nombre": "WhatsApp Bot", "nodos": 12, "ia_avanzada": true}],
+  "integraciones": 2,
+  "landing_pages": [{"nombre": "Landing Principal", "secciones": 7}],
+  "reportes": true,
+  "sesiones_capacitacion": 1,
+  "soporte": true
+}
 
-El JSON debe ir envuelto en \`\`\`json bloques.
+Roadmap a analizar:
+${analysis.roadmap || JSON.stringify(analysis)}`;
 
-Referencia de precios base:
-- Setup básico CRM: $1,200 - $2,500
-- Setup con Automatizaciones: $2,500 - $5,000
-- Setup con IA Conversacional: $4,000 - $8,000
-- Por semana de trabajo: ~$800-1,200
-- Total de ${weeksCount} semanas y ${tasksCount} tareas sugiere un proyecto de complejidad media-alta.`;
-
-  const response = await client.chat.completions.create({
-    model: AI_MODEL,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      {
-        role: 'user',
-        content: `Genera la cotización basada en este Roadmap:\n${roadmap}\n\nEstructura del proyecto:\n${JSON.stringify(projectStructure)}`
-      }
-    ],
-    temperature: 0.3
-  });
-
-  const content = response.choices[0].message.content;
-  const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-
-  if (jsonMatch && jsonMatch[1]) {
-    return JSON.parse(jsonMatch[1]);
+  let scope = {};
+  try {
+    const scopeResponse = await client.chat.completions.create({
+      model: AI_MODEL,
+      messages: [
+        { role: 'system', content: 'Eres un experto en extraer scope técnico de proyectos GHL. Responde SOLO JSON.' },
+        { role: 'user', content: scopePrompt }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.2
+    });
+    scope = JSON.parse(scopeResponse.choices[0].message.content);
+  } catch (e) {
+    console.warn('Failed to extract scope, using defaults:', e.message);
+    scope = {
+      cliente: analysis.clientName || 'Cliente',
+      setup_subcuenta: 'completo',
+      pipelines: [{ nombre: 'Pipeline Principal', etapas: 7 }],
+      workflows: [],
+      chatbots: [],
+      integraciones: 0,
+      landing_pages: [],
+      reportes: false,
+      sesiones_capacitacion: 1,
+      soporte: true
+    };
   }
 
-  // Fallback if no JSON blocks found
+  // Step 2: Calculate pricing using cotizador logic (JS port)
+  const cotizacion = calcularCotizacion(scope);
+
+  // Return full quotation object
   return {
-    html: content,
-    investment: weeksCount * 800,
-    monthlyFee: 97,
-    timeline: `${weeksCount} semanas`,
-    roi: { multiplier: 3, description: 'ROI estimado' }
+    cliente: scope.cliente || analysis.clientName,
+    scope: scope,
+    ...cotizacion,
+    // Legacy fields for backwards compatibility
+    investment: cotizacion.a_la_carte?.setup || 0,
+    monthlyFee: cotizacion.a_la_carte?.mensual || 0,
+    timeline: `${projectStructure?.length || 4} semanas`,
+    roi: { multiplier: 3, description: 'ROI estimado basado en eficiencia operativa' }
+  };
+}
+
+// ── COTIZADOR GHL (JS Port) ─────────────────────────────────────────────────
+
+const MODULOS = {
+  crm: { nombre: "CRM & Pipelines", base: 250, mensual: 0, factores: { pipelines: { limite: 2, extra: 60 }, etapas: { limite: 5, extra: 15 } } },
+  workflows: { nombre: "Automatizaciones & Workflows", base: 350, mensual: 0, factores: { workflows: { limite: 3, extra: 70 }, nodos: { limite: 8, extra: 12 } } },
+  chatbot: { nombre: "Chatbot / AI Chat", base: 400, mensualPorUnidad: 80, factores: { chatbots: { limite: 1, extra: 200 }, nodos: { limite: 10, extra: 15 }, ia_avanzada: { precio: 150 } } },
+  integraciones: { nombre: "Integraciones Externas", base: 300, mensualPorUnidad: 50, factores: { integraciones: { limite: 1, extra: 300 } } },
+  landing: { nombre: "Landing Pages", base: 450, mensual: 0, factores: { pages: { limite: 1, extra: 300 }, secciones: { limite: 5, extra: 40 } } },
+  reportes: { nombre: "Reportes & Dashboards", base: 250, mensual: 60 },
+  soporte: { nombre: "Soporte Post-Implementación", mensual: 150 }
+};
+
+const SETUP_SUBCUENTA = { completo: 250, validacion: 100 };
+
+const PAQUETES = {
+  Starter: { setup: 900, mensual: 150, limites: { crm: { pipelines: 2, etapas: 5 }, workflows: { workflows: 3, nodos: 8 }, capacitacion: 1, soporte: true } },
+  Pro: { setup: 1800, mensual: 280, limites: { crm: { pipelines: 2, etapas: 7 }, workflows: { workflows: 6, nodos: 10 }, chatbot: { chatbots: 1, nodos: 10 }, capacitacion: 2, soporte: true } },
+  Enterprise: { setup: 3200, mensual: 400, limites: { crm: { pipelines: 2, etapas: 7 }, workflows: { workflows: 6, nodos: 10 }, chatbot: { chatbots: 1, nodos: 10 }, integraciones: 2, landing: { pages: 1, secciones: 6 }, reportes: true, capacitacion: 3, soporte: true } }
+};
+
+function cotizarALaCarte(scope) {
+  let setupTotal = 0;
+  let mensualTotal = 0;
+  const desglose = [];
+
+  // Setup de subcuenta
+  const tipoSetup = scope.setup_subcuenta || 'completo';
+  const precioSetup = SETUP_SUBCUENTA[tipoSetup] || 250;
+  setupTotal += precioSetup;
+  desglose.push({ modulo: "Setup de Subcuenta", setup: precioSetup, mensual: 0, detalle: [`Tipo: ${tipoSetup} (DNS + dominio + WhatsApp + correos)`] });
+
+  // CRM & Pipelines
+  if (scope.pipelines?.length > 0) {
+    let base = MODULOS.crm.base;
+    const detalle = [];
+    const cantPip = scope.pipelines.length;
+    detalle.push(`Base (${cantPip} pipelines, 5 etapas c/u)`);
+
+    if (cantPip > 2) {
+      const extra = (cantPip - 2) * 60;
+      base += extra;
+      detalle.push(`${cantPip - 2} pipeline(s) extra → +$${extra}`);
+    }
+
+    for (const p of scope.pipelines) {
+      if ((p.etapas || 0) > 5) {
+        const extra = (p.etapas - 5) * 15;
+        base += extra;
+        detalle.push(`Pipeline '${p.nombre}': ${p.etapas - 5} etapa(s) extra (${p.etapas} total) → +$${extra}`);
+      }
+    }
+
+    setupTotal += base;
+    desglose.push({ modulo: "CRM & Pipelines", setup: base, mensual: 0, detalle });
+  }
+
+  // Workflows
+  if (scope.workflows?.length > 0) {
+    let base = MODULOS.workflows.base;
+    const detalle = [];
+    const cantWf = scope.workflows.length;
+    detalle.push(`Base (${Math.min(3, cantWf)} workflows, 8 nodos c/u)`);
+
+    if (cantWf > 3) {
+      const extra = (cantWf - 3) * 70;
+      base += extra;
+      detalle.push(`${cantWf - 3} workflow(s) extra (${cantWf} total) → +$${extra}`);
+    }
+
+    // Check for workflows within limit that have excess nodes
+    let allWithinNodeLimit = true;
+    for (const wf of scope.workflows) {
+      if ((wf.nodos || 0) > 8) {
+        allWithinNodeLimit = false;
+        const extra = (wf.nodos - 8) * 12;
+        base += extra;
+        detalle.push(`Workflow '${wf.nombre}': ${wf.nodos - 8} nodo(s) extra → +$${extra}`);
+      }
+    }
+    if (allWithinNodeLimit && cantWf <= 3) {
+      detalle.push(`Nota: todos los workflows quedan dentro del límite de 8 nodos c/u → sin extras por nodos`);
+    }
+
+    setupTotal += base;
+    desglose.push({ modulo: "Automatizaciones & Workflows", setup: base, mensual: 0, detalle });
+  }
+
+  // Chatbot
+  if (scope.chatbots?.length > 0) {
+    let base = MODULOS.chatbot.base;
+    let mensual = 0;
+    const detalle = [];
+    const cantCb = scope.chatbots.length;
+    const totalNodos = scope.chatbots.reduce((t, c) => t + (c.nodos || 0), 0);
+
+    detalle.push(`Base (1 chatbot, 10 nodos)`);
+
+    if (cantCb > 1) {
+      const extra = (cantCb - 1) * 200;
+      base += extra;
+      detalle.push(`${cantCb - 1} chatbot(s) extra → +$${extra}`);
+    }
+
+    for (const cb of scope.chatbots) {
+      if ((cb.nodos || 0) > 10) {
+        const extra = (cb.nodos - 10) * 15;
+        base += extra;
+        detalle.push(`${cb.nodos - 10} nodos extra (${cb.nodos} total) → +$${extra}`);
+      }
+      if (cb.ia_avanzada) {
+        base += 150;
+        detalle.push(`IA generativa avanzada → +$150`);
+      }
+    }
+
+    mensual = cantCb * 80;
+    detalle.push(`Mensual: ${cantCb} chatbot activo × $80`);
+
+    setupTotal += base;
+    mensualTotal += mensual;
+    desglose.push({ modulo: "Chatbot / AI Chat", setup: base, mensual, detalle });
+  }
+
+  // Integraciones
+  if ((scope.integraciones || 0) > 0) {
+    let base = MODULOS.integraciones.base;
+    const detalle = [];
+    const cant = scope.integraciones;
+
+    detalle.push(`Base (1 integración incluida)`);
+
+    if (cant > 1) {
+      const extra = (cant - 1) * 300;
+      base += extra;
+      detalle.push(`${cant - 1} integración extra (WhatsApp API + UTM tracking) → +$${extra}`);
+    }
+
+    const mensual = cant * 50;
+    detalle.push(`Mensual: ${cant} integraciones activas × $50`);
+
+    setupTotal += base;
+    mensualTotal += mensual;
+    desglose.push({ modulo: "Integraciones Externas", setup: base, mensual, detalle });
+  }
+
+  // Landing Pages
+  if (scope.landing_pages?.length > 0) {
+    let base = MODULOS.landing.base;
+    const detalle = [];
+    const cantPages = scope.landing_pages.length;
+
+    detalle.push(`Base (1 page, 5 secciones)`);
+
+    if (cantPages > 1) {
+      const extra = (cantPages - 1) * 300;
+      base += extra;
+      detalle.push(`${cantPages - 1} page(s) extra → +$${extra}`);
+    }
+
+    for (const page of scope.landing_pages) {
+      if ((page.secciones || 0) > 5) {
+        const extra = (page.secciones - 5) * 40;
+        base += extra;
+        detalle.push(`${page.secciones - 5} secciones extra (${page.secciones} total) → +$${extra}`);
+      }
+    }
+
+    setupTotal += base;
+    desglose.push({ modulo: "Landing Pages", setup: base, mensual: 0, detalle });
+  }
+
+  // Reportes
+  if (scope.reportes) {
+    setupTotal += 250;
+    mensualTotal += 60;
+    desglose.push({ modulo: "Reportes & Dashboards", setup: 250, mensual: 60, detalle: ["Dashboard de atribución y métricas"] });
+  }
+
+  // Soporte
+  if (scope.soporte) {
+    mensualTotal += 150;
+    desglose.push({ modulo: "Soporte Post-Implementación", setup: 0, mensual: 150, detalle: ["Feed mensual de mantenimiento"] });
+  }
+
+  return { setup: setupTotal, mensual: mensualTotal, desglose };
+}
+
+function cotizarConPaquete(scope, nombrePaquete) {
+  const paquete = PAQUETES[nombrePaquete];
+  const tipoSetup = scope.setup_subcuenta || 'completo';
+  const precioSetupSub = SETUP_SUBCUENTA[tipoSetup] || 250;
+
+  // Calculate extras over package limits (simplified)
+  let extrasSetup = 0;
+  let extrasMensual = 0;
+
+  // Check if scope elements exceed package limits
+  if (scope.chatbots?.length && !paquete.limites.chatbot) {
+    extrasSetup += MODULOS.chatbot.base + (scope.chatbots.some(c => c.ia_avanzada) ? 150 : 0);
+    extrasMensual += scope.chatbots.length * 80;
+  }
+
+  if (scope.integraciones && !paquete.limites.integraciones) {
+    extrasSetup += MODULOS.integraciones.base + ((scope.integraciones - 1) * 300);
+    extrasMensual += scope.integraciones * 50;
+  }
+
+  if (scope.landing_pages?.length && !paquete.limites.landing) {
+    extrasSetup += MODULOS.landing.base;
+    for (const page of scope.landing_pages) {
+      if ((page.secciones || 0) > 5) extrasSetup += (page.secciones - 5) * 40;
+    }
+  }
+
+  if (scope.reportes && !paquete.limites.reportes) {
+    extrasSetup += 250;
+    extrasMensual += 60;
+  }
+
+  return {
+    paquete: nombrePaquete,
+    setup_subcuenta: precioSetupSub,
+    setup_paquete: paquete.setup,
+    extras_setup: extrasSetup,
+    setup_total: precioSetupSub + paquete.setup + extrasSetup,
+    mensual_paquete: paquete.mensual,
+    extras_mensual: extrasMensual,
+    mensual_total: paquete.mensual + extrasMensual
+  };
+}
+
+function calcularCotizacion(scope) {
+  const aLaCarte = cotizarALaCarte(scope);
+
+  const todosPaquetes = ['Starter', 'Pro', 'Enterprise'].map(nombre => {
+    const cot = cotizarConPaquete(scope, nombre);
+    const ahorroSetup = aLaCarte.setup - cot.setup_total;
+    const ahorroMensual = aLaCarte.mensual - cot.mensual_total;
+    return {
+      ...cot,
+      ahorro_setup: ahorroSetup,
+      ahorro_mensual: ahorroMensual,
+      ahorro_total_primer_año: ahorroSetup + (ahorroMensual * 12)
+    };
+  });
+
+  // Find best package (max savings in first year, if positive)
+  const positivos = todosPaquetes.filter(p => p.ahorro_total_primer_año > 0);
+  const mejorPaquete = positivos.length > 0
+    ? positivos.reduce((a, b) => a.ahorro_total_primer_año > b.ahorro_total_primer_año ? a : b)
+    : null;
+
+  return {
+    cliente: scope.cliente || 'Cliente',
+    a_la_carte: aLaCarte,
+    mejor_paquete: mejorPaquete,
+    todos_paquetes: todosPaquetes,
+    recomendacion: mejorPaquete
+      ? { titulo: mejorPaquete.paquete, razon: `Ahorro de $${mejorPaquete.ahorro_total_primer_año} en el primer año.` }
+      : { titulo: 'À la carte', razon: 'Ningún paquete genera ahorro significativo para este scope específico.' }
   };
 }
 

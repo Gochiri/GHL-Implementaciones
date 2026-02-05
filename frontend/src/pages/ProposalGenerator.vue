@@ -56,40 +56,87 @@ const loadProposalData = async () => {
   }
 
   try {
-    const project = await api.getProject(projectId)
+    // First check localStorage for cached project data
+    let project = null
+    try {
+      const localData = localStorage.getItem(`project-${projectId}`)
+      if (localData) {
+        project = JSON.parse(localData)
+      }
+    } catch (e) {}
+    
+    // Try API as well
+    try {
+      const apiProject = await api.getProject(projectId)
+      if (apiProject) {
+        project = { ...project, ...apiProject }
+      }
+    } catch (e) {
+      console.warn('API unavailable, using localStorage')
+    }
+    
     if (project) {
       showSelector.value = false
-      localStorage.setItem('last-project-id', project.id)
+      localStorage.setItem('last-project-id', projectId)
       clientInfo.value.name = project.name || project.clientName || 'Sin Nombre'
       
       if (project.analysis) {
         if (project.analysis.clientEmail) clientInfo.value.email = project.analysis.clientEmail
         if (project.analysis.contactName) clientInfo.value.contact = project.analysis.contactName
         
+        // Extract pain points - handle objects and strings
         if (project.analysis.painPoints && proposalData.value.painPoints.length === 0) {
-          proposalData.value.painPoints = project.analysis.painPoints.map(p => p.text || p)
+          proposalData.value.painPoints = project.analysis.painPoints.map(p => {
+            if (typeof p === 'string') return p
+            return p.text || p.dolor || p.description || JSON.stringify(p)
+          })
         }
+        
+        // Extract objectives - handle objects and strings
         if (project.analysis.objectives && proposalData.value.solutions.length === 0) {
-          proposalData.value.solutions = project.analysis.objectives.map(o => o.objetivo || o.objective || o)
+          proposalData.value.solutions = project.analysis.objectives.map(o => {
+            if (typeof o === 'string') return o
+            return o.text || o.objetivo || o.objective || o.description || JSON.stringify(o)
+          })
         }
       }
       
-      if (project.projectType) {
+      // Load quotation from project if available
+      if (project.quotation) {
+        if (project.quotation.investment) proposalData.value.investment = project.quotation.investment
+        if (project.quotation.timeline) proposalData.value.timeline = project.quotation.timeline
+        if (project.quotation.solutions) {
+          proposalData.value.solutions = project.quotation.solutions.map(s => 
+            typeof s === 'string' ? s : s.name || s.text || JSON.stringify(s)
+          )
+        }
+        if (project.quotation.painPoints) {
+          proposalData.value.painPoints = project.quotation.painPoints.map(p => 
+            typeof p === 'string' ? p : p.text || p.dolor || JSON.stringify(p)
+          )
+        }
+      }
+      
+      // Use projectType pricing as fallback
+      if (project.projectType && proposalData.value.investment === 0) {
         const typeInfo = projectTypes.find(t => t.value === project.projectType)
-        if (typeInfo && proposalData.value.investment === 0) {
+        if (typeInfo) {
           proposalData.value.investment = typeInfo.price
           proposalData.value.timeline = `${typeInfo.weeks} semanas`
         }
       }
       
+      // Use weeks count for timeline
       if (project.weeks && project.weeks.length > 0) {
         proposalData.value.timeline = `${project.weeks.length} semanas`
       }
 
       // Sync status if needed
-      if (project.status === 'created' || project.status === 'analysis' || !project.status) {
-        await api.updateProject(projectId, { status: 'proposal' })
-      }
+      try {
+        if (project.status === 'created' || project.status === 'analysis' || !project.status) {
+          await api.updateProject(projectId, { status: 'proposal' })
+        }
+      } catch (e) {}
     }
   } catch (error) {
     console.error('Error loading project for proposal:', error)
