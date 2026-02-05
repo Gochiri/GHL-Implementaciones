@@ -435,7 +435,7 @@ const getSeverityClass = (severity) => {
                 <span class="tech-check">✓</span>
                 <div class="tech-item-content">
                   <div class="tech-text">
-                    {{ typeof obj === 'object' ? (obj.objetivo || obj.objective || obj) : obj }}
+                    {{ typeof obj === 'object' ? (obj.text || obj.objetivo || obj.objective || JSON.stringify(obj)) : obj }}
                   </div>
                   <div v-if="typeof obj === 'object' && (obj.detalle || obj.detail)" class="tech-sub">
                     {{ obj.detalle || obj.detail }}

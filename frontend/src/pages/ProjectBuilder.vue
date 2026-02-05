@@ -88,55 +88,61 @@ const loadProject = async () => {
     return
   }
 
+  // Always hide selector when we have a projectId
+  showSelector.value = false
+  
+  // First, try to load from localStorage (fastest, most reliable for new projects)
+  const localAnalysis = getLocalAnalysis(projectId)
+  const savedWeeks = localStorage.getItem(`project-weeks-${projectId}`)
+  
+  if (localAnalysis) {
+    clientName.value = localAnalysis.clientName || 'Nuevo Cliente'
+    projectAnalysis.value = localAnalysis
+  }
+  
+  if (savedWeeks) {
+    try {
+      setWeeks(JSON.parse(savedWeeks))
+    } catch (e) {
+      console.warn('Error parsing saved weeks:', e)
+    }
+  }
+
+  // Then try to enrich from backend API
   try {
     const project = await api.getProject(projectId)
-    // Check if the project is valid and has actual data (not just an error object or empty)
-    if (project && project.id && (project.weeks?.length > 0 || project.clientName)) {
-      showSelector.value = false
+    if (project && project.id) {
       localStorage.setItem('last-project-id', project.id)
-      clientName.value = project.name || project.clientName || 'Sin Nombre'
+      clientName.value = project.name || project.clientName || clientName.value || 'Sin Nombre'
       
-      // Normalize weeks from backend (if they are simple objects, convert to frontend format)
       if (project.weeks && project.weeks.length > 0) {
         setWeeks(project.weeks)
-      } else {
-        // Fallback to localStorage weeks
-        const savedWeeks = localStorage.getItem(`project-weeks-${projectId}`)
-        if (savedWeeks) {
-          setWeeks(JSON.parse(savedWeeks))
-        } else {
-          weeks.value = []
-        }
       }
       
       if (project.projectType) projectType.value = project.projectType
-      projectAnalysis.value = project.analysis || getLocalAnalysis(projectId)
-      projectDocumentation.value = project.documentation || ''
-      
-      // Auto-generate quotation if missing but we have structure
-      if (weeks.value.length > 0) {
-        generateQuotation()
-      }
-    } else {
-      throw new Error('Project data incomplete in API')
+      if (project.analysis) projectAnalysis.value = project.analysis
+      if (project.documentation) projectDocumentation.value = project.documentation
     }
   } catch (error) {
-    console.warn('Project not found in API, checking localStorage:', projectId)
-    
-    // Fallback: Check if we have the analysis in localStorage
-    const localAnalysis = getLocalAnalysis(projectId)
-    if (localAnalysis) {
-      showSelector.value = false
-      clientName.value = localAnalysis.clientName || 'Cliente'
-      projectAnalysis.value = localAnalysis
-      
-      const savedWeeks = localStorage.getItem(`project-weeks-${projectId}`)
-      if (savedWeeks) {
-        setWeeks(JSON.parse(savedWeeks))
-      }
-    } else {
-      showSelector.value = true
-    }
+    console.warn('API fetch failed, using localStorage data:', error)
+  }
+  
+  // Auto-generate quotation if we have weeks
+  if (weeks.value.length > 0 && !projectQuotation.value) {
+    generateQuotation()
+  }
+  
+  // If still no weeks, generate default structure
+  if (weeks.value.length === 0) {
+    console.log('No weeks found, generating default structure...')
+    const defaultWeeks = [
+      { name: 'Fase 1 — Setup Base', tasks: [{ name: 'Configurar Subcuenta GHL', hours: 2 }, { name: 'Dominio y Email', hours: 1 }] },
+      { name: 'Fase 2 — CRM & Pipelines', tasks: [{ name: 'Configurar Pipeline Ventas', hours: 3 }, { name: 'Custom Fields', hours: 2 }] },
+      { name: 'Fase 3 — Automatizaciones', tasks: [{ name: 'Workflow Captura Leads', hours: 4 }] },
+      { name: 'Fase 4 — Go-Live', tasks: [{ name: 'Testing Final', hours: 2 }, { name: 'Sesión Capacitación', hours: 2 }] }
+    ]
+    setWeeks(defaultWeeks)
+    localStorage.setItem(`project-weeks-${projectId}`, JSON.stringify(defaultWeeks))
   }
 }
 
