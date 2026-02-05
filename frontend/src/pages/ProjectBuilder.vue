@@ -14,6 +14,7 @@ const projectDocumentation = ref('')
 const isEditingBlueprint = ref(false)
 const allProjects = ref([])
 const showSelector = ref(false)
+const isLoading = ref(true)
 
 const weeks = ref([])
 const projectAnalysis = ref(null)
@@ -78,71 +79,87 @@ const loadProject = async () => {
     const lastId = localStorage.getItem('last-project-id')
     if (lastId) {
       router.replace(`/project/${lastId}`)
+      return
     } else {
-      const projects = await api.getProjects()
-      allProjects.value = projects
-      if (projects.length > 0) {
-        showSelector.value = true
+      try {
+        const projects = await api.getProjects()
+        allProjects.value = projects
+        if (projects.length > 0) {
+          showSelector.value = true
+        }
+      } catch (e) {
+        console.warn('Error loading projects:', e)
       }
     }
+    isLoading.value = false
     return
   }
 
   // Always hide selector when we have a projectId
   showSelector.value = false
   
-  // First, try to load from localStorage (fastest, most reliable for new projects)
-  const localAnalysis = getLocalAnalysis(projectId)
-  const savedWeeks = localStorage.getItem(`project-weeks-${projectId}`)
-  
-  if (localAnalysis) {
-    clientName.value = localAnalysis.clientName || 'Nuevo Cliente'
-    projectAnalysis.value = localAnalysis
-  }
-  
-  if (savedWeeks) {
-    try {
-      setWeeks(JSON.parse(savedWeeks))
-    } catch (e) {
-      console.warn('Error parsing saved weeks:', e)
-    }
-  }
-
-  // Then try to enrich from backend API
   try {
-    const project = await api.getProject(projectId)
-    if (project && project.id) {
-      localStorage.setItem('last-project-id', project.id)
-      clientName.value = project.name || project.clientName || clientName.value || 'Sin Nombre'
-      
-      if (project.weeks && project.weeks.length > 0) {
-        setWeeks(project.weeks)
-      }
-      
-      if (project.projectType) projectType.value = project.projectType
-      if (project.analysis) projectAnalysis.value = project.analysis
-      if (project.documentation) projectDocumentation.value = project.documentation
+    // First, try to load from localStorage (fastest, most reliable for new projects)
+    const localAnalysis = getLocalAnalysis(projectId)
+    const savedWeeks = localStorage.getItem(`project-weeks-${projectId}`)
+    
+    if (localAnalysis) {
+      clientName.value = localAnalysis.clientName || 'Nuevo Cliente'
+      projectAnalysis.value = localAnalysis
     }
-  } catch (error) {
-    console.warn('API fetch failed, using localStorage data:', error)
-  }
-  
-  // Auto-generate quotation if we have weeks
-  if (weeks.value.length > 0 && !projectQuotation.value) {
-    generateQuotation()
-  }
-  
-  // If still no weeks, generate default structure
-  if (weeks.value.length === 0) {
-    console.log('No weeks found, generating default structure...')
-    const defaultWeeks = [
-      { name: 'Fase 1 — Setup Base', tasks: [{ name: 'Configurar Subcuenta GHL', hours: 2 }, { name: 'Dominio y Email', hours: 1 }] },
-      { name: 'Fase 2 — CRM & Pipelines', tasks: [{ name: 'Configurar Pipeline Ventas', hours: 3 }, { name: 'Custom Fields', hours: 2 }] },
-      { name: 'Fase 3 — Automatizaciones', tasks: [{ name: 'Workflow Captura Leads', hours: 4 }] },
-      { name: 'Fase 4 — Go-Live', tasks: [{ name: 'Testing Final', hours: 2 }, { name: 'Sesión Capacitación', hours: 2 }] }
-    ]
-    setWeeks(defaultWeeks)
-    localStorage.setItem(`project-weeks-${projectId}`, JSON.stringify(defaultWeeks))
+    
+    if (savedWeeks) {
+      try {
+        setWeeks(JSON.parse(savedWeeks))
+      } catch (e) {
+        console.warn('Error parsing saved weeks:', e)
+      }
+    }
+
+    // Then try to enrich from backend API
+    try {
+      const project = await api.getProject(projectId)
+      if (project && project.id) {
+        localStorage.setItem('last-project-id', project.id)
+        clientName.value = project.name || project.clientName || clientName.value || 'Sin Nombre'
+        
+        if (project.weeks && project.weeks.length > 0) {
+          setWeeks(project.weeks)
+        }
+        
+        if (project.projectType) projectType.value = project.projectType
+        if (project.analysis) projectAnalysis.value = project.analysis
+        if (project.documentation) projectDocumentation.value = project.documentation
+      }
+    } catch (error) {
+      console.warn('API fetch failed, using localStorage data:', error)
+    }
+    
+    // If still no weeks, generate default structure
+    if (weeks.value.length === 0) {
+      console.log('No weeks found, generating default structure...')
+      const defaultWeeks = [
+        { name: 'Fase 1 — Setup Base', tasks: [{ name: 'Configurar Subcuenta GHL', hours: 2 }, { name: 'Dominio y Email', hours: 1 }] },
+        { name: 'Fase 2 — CRM & Pipelines', tasks: [{ name: 'Configurar Pipeline Ventas', hours: 3 }, { name: 'Custom Fields', hours: 2 }] },
+        { name: 'Fase 3 — Automatizaciones', tasks: [{ name: 'Workflow Captura Leads', hours: 4 }] },
+        { name: 'Fase 4 — Go-Live', tasks: [{ name: 'Testing Final', hours: 2 }, { name: 'Sesión Capacitación', hours: 2 }] }
+      ]
+      setWeeks(defaultWeeks)
+      localStorage.setItem(`project-weeks-${projectId}`, JSON.stringify(defaultWeeks))
+    }
+    
+    // Set a default client name if still empty
+    if (!clientName.value) {
+      clientName.value = 'Nuevo Proyecto'
+    }
+    
+  } finally {
+    isLoading.value = false
+    
+    // Auto-generate quotation if we have weeks (fire and forget, don't block)
+    if (weeks.value.length > 0 && !projectQuotation.value) {
+      generateQuotation().catch(e => console.warn('Quotation generation failed:', e))
+    }
   }
 }
 
@@ -395,8 +412,16 @@ const generateQuotation = async () => {
 
 <template>
   <div class="project-builder">
+    <!-- Loading State -->
+    <div v-if="isLoading" class="loading-overlay">
+      <div class="loading-card">
+        <div class="loading-spinner-large"></div>
+        <p>Cargando proyecto...</p>
+      </div>
+    </div>
+
     <!-- Empty State / Project Selector -->
-    <div v-if="showSelector" class="selector-overlay">
+    <div v-else-if="showSelector" class="selector-overlay">
       <div class="selector-card blur-card">
         <span class="selector-icon">📋</span>
         <h2>Selecciona un Proyecto</h2>
@@ -412,7 +437,7 @@ const generateQuotation = async () => {
     </div>
 
     <!-- Header -->
-    <div v-if="!showSelector" class="builder-header premium-header">
+    <div v-if="!showSelector && !isLoading" class="builder-header premium-header">
       <div class="project-info">
         <div class="client-badge">
           {{ clientName }} (cliente final)
@@ -671,6 +696,43 @@ const generateQuotation = async () => {
   align-items: center;
   justify-content: center;
   border-radius: 20px;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-page);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20px;
+}
+
+.loading-card {
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  padding: 48px;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+}
+
+.loading-spinner-large {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(255,255,255,0.1);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 24px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .selector-card {
