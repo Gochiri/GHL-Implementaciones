@@ -1,6 +1,11 @@
 {
     "version": 2,
     "outputDirectory": "frontend/dist",
+    "functions": {
+        "api/index.js": {
+            "includeFiles": "Skills/**"
+        }
+    },
     "rewrites": [
         {
             "source": "/api/test",
