@@ -13,7 +13,7 @@ import {
 import { executeSkill } from './services/skill-service.js';
 import { createClickUpProject, updateTaskStatus } from './services/clickup-service.js';
 import { extractTextFromFile } from './services/file-service.js';
-import db from './db.js';
+import { projectRepo } from './services/db.js';
 
 dotenv.config();
 
@@ -36,19 +36,18 @@ app.get('/api/health', (req, res) => {
 
 // --- PROJECT MANAGEMENT ENDPOINTS ---
 
+// --- PROJECT MANAGEMENT ENDPOINTS ---
+
 // Get all projects
 app.get('/api/projects', (req, res) => {
   try {
-    if (!db) return res.json([]); // Return empty list if no DB
-    const projects = db.prepare('SELECT * FROM projects ORDER BY updatedAt DESC').all();
-    // Parse JSON fields
-    const parsed = projects.map(p => ({
+    const projects = projectRepo.getAll();
+    res.json(projects.map(p => ({
       ...p,
       analysis: p.analysis ? JSON.parse(p.analysis) : null,
       weeks: p.weeks ? JSON.parse(p.weeks) : [],
       answers: p.answers ? JSON.parse(p.answers) : []
-    }));
-    res.json(parsed);
+    })));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -57,15 +56,18 @@ app.get('/api/projects', (req, res) => {
 // Get single project
 app.get('/api/projects/:id', (req, res) => {
   try {
-    if (!db) return res.status(404).json({ error: 'Project not found (No DB)' });
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+    const project = projectRepo.getById(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    // Data is already hydrated by projectRepo.getById, but we ensure JSON fields are parsed if they come as strings
+    // (Note: getById already parses JSON info from project_data, but we need to handle core fields if they were stored as strings in legacy)
+    const safeParse = (val) => typeof val === 'string' ? JSON.parse(val) : val;
 
     res.json({
       ...project,
-      analysis: project.analysis ? JSON.parse(project.analysis) : null,
-      weeks: project.weeks ? JSON.parse(project.weeks) : [],
-      answers: project.answers ? JSON.parse(project.answers) : []
+      analysis: safeParse(project.analysis),
+      weeks: safeParse(project.weeks),
+      answers: safeParse(project.answers)
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -78,24 +80,18 @@ app.post('/api/projects', (req, res) => {
     const { name, clientName, niche, analysis, weeks, status } = req.body;
     const id = uuidv4();
 
-    if (db) {
-      const stmt = db.prepare(`
-        INSERT INTO projects (id, name, clientName, niche, analysis, weeks, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
+    const success = projectRepo.create({
+      id,
+      name: name || clientName || 'Nuevo Proyecto',
+      clientName, // This will map to project_data
+      status: status || 'analysis'
+    });
 
-      stmt.run(
-        id,
-        name || clientName || 'Nuevo Proyecto',
-        clientName,
-        niche,
-        JSON.stringify(analysis || null),
-        JSON.stringify(weeks || []),
-        status || 'analysis'
-      );
-    }
+    if (analysis) projectRepo.saveData(id, 'analysis', analysis);
+    if (weeks) projectRepo.saveData(id, 'weeks', weeks);
+    if (niche) projectRepo.saveData(id, 'niche', niche);
 
-    res.json({ id, success: true });
+    res.json({ id, success });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -104,32 +100,9 @@ app.post('/api/projects', (req, res) => {
 // Update project
 app.put('/api/projects/:id', (req, res) => {
   try {
-    const { name, clientName, niche, complexity, status, analysis, weeks, answers, documentation } = req.body;
-
-    if (!db) return res.json({ success: true, message: 'No DB connected' });
-
-    const fields = [];
-    const values = [];
-
-    if (name !== undefined) { fields.push('name = ?'); values.push(name); }
-    if (clientName !== undefined) { fields.push('clientName = ?'); values.push(clientName); }
-    if (niche !== undefined) { fields.push('niche = ?'); values.push(niche); }
-    if (complexity !== undefined) { fields.push('complexity = ?'); values.push(complexity); }
-    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
-    if (analysis !== undefined) { fields.push('analysis = ?'); values.push(JSON.stringify(analysis)); }
-    if (weeks !== undefined) { fields.push('weeks = ?'); values.push(JSON.stringify(weeks)); }
-    if (answers !== undefined) { fields.push('answers = ?'); values.push(JSON.stringify(answers)); }
-    if (documentation !== undefined) { fields.push('documentation = ?'); values.push(documentation); }
-
-    fields.push('updatedAt = CURRENT_TIMESTAMP');
-
-    if (fields.length === 1) return res.json({ success: true, message: 'No changes' });
-
-    const stmt = db.prepare(`UPDATE projects SET ${fields.join(', ')} WHERE id = ?`);
-    const result = stmt.run(...values, req.params.id);
-
-    if (result.changes === 0) return res.status(404).json({ error: 'Project not found' });
-
+    // Pass everything to updateProject, it handles core vs data fields
+    const result = projectRepo.updateProject(req.params.id, req.body);
+    if (!result) return res.status(404).json({ error: 'Project not found' });
     res.json({ success: true });
   } catch (error) {
     console.error('Update project error:', error);
@@ -140,7 +113,7 @@ app.put('/api/projects/:id', (req, res) => {
 // Delete project
 app.delete('/api/projects/:id', (req, res) => {
   try {
-    if (db) db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+    projectRepo.delete(req.params.id);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -187,22 +160,16 @@ app.post('/api/analyze', async (req, res) => {
 
     // Auto-create project record
     const id = uuidv4();
-    if (db) {
-      const stmt = db.prepare(`
-        INSERT INTO projects (id, name, clientName, niche, complexity, analysis, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
+    projectRepo.create({
+      id,
+      name: analysis.clientName || 'Nuevo Proyecto',
+      clientName: analysis.clientName,
+      status: 'analysis'
+    });
 
-      stmt.run(
-        id,
-        analysis.clientName || 'Nuevo Proyecto',
-        analysis.clientName,
-        analysis.niche,
-        analysis.complexity,
-        JSON.stringify(analysis),
-        'analysis'
-      );
-    }
+    projectRepo.saveData(id, 'analysis', analysis);
+    projectRepo.saveData(id, 'niche', analysis.niche);
+    projectRepo.saveData(id, 'complexity', analysis.complexity);
 
     res.json({ ...analysis, id });
   } catch (error) {
@@ -218,9 +185,8 @@ app.post('/api/hormozi', async (req, res) => {
     const response = await askHormoziQuestion(context, previousAnswers, apiKey);
 
     // Optional: save answers to project if projectId provided
-    if (projectId && previousAnswers && db) {
-      db.prepare('UPDATE projects SET answers = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
-        .run(JSON.stringify(previousAnswers), projectId);
+    if (projectId && previousAnswers) {
+      projectRepo.saveData(projectId, 'answers', previousAnswers);
     }
 
     res.json(response);
@@ -253,9 +219,17 @@ app.post('/api/project-structure', async (req, res) => {
     const { analysis, answers, projectId, apiKey } = req.body;
     const structure = await generateProjectStructure(analysis, answers, apiKey);
 
-    if (projectId && db) {
-      db.prepare('UPDATE projects SET weeks = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
-        .run(JSON.stringify(structure.weeks), 'created', projectId);
+    if (projectId) {
+      if (!projectRepo.getById(projectId)) {
+        projectRepo.create({
+          id: projectId,
+          name: analysis?.clientName || 'Nuevo Proyecto',
+          status: 'analysis'
+        });
+        if (analysis) projectRepo.saveData(projectId, 'analysis', analysis);
+      }
+      projectRepo.saveData(projectId, 'weeks', structure.weeks);
+      projectRepo.updateProject(projectId, { status: 'created' });
     }
 
     res.json(structure);
@@ -271,9 +245,18 @@ app.post('/api/quotation', async (req, res) => {
     const { analysis, projectStructure, projectId, apiKey } = req.body;
     const quotation = await generateQuotation(analysis, projectStructure, apiKey);
 
-    if (projectId && db) {
-      db.prepare('UPDATE projects SET status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
-        .run('proposal', projectId);
+    if (projectId) {
+      if (!projectRepo.getById(projectId)) {
+        projectRepo.create({
+          id: projectId,
+          name: analysis?.clientName || 'Nuevo Proyecto',
+          status: 'created'
+        });
+        if (analysis) projectRepo.saveData(projectId, 'analysis', analysis);
+        if (projectStructure?.weeks) projectRepo.saveData(projectId, 'weeks', projectStructure.weeks);
+      }
+      projectRepo.saveData(projectId, 'quotation', quotation);
+      projectRepo.updateProject(projectId, { status: 'proposal' });
     }
 
     res.json(quotation);
@@ -290,9 +273,18 @@ app.post('/api/project/document', async (req, res) => {
 
     const documentation = await generateGHLDocumentation(analysis, projectStructure, answers, apiKey);
 
-    if (projectId && db) {
-      db.prepare('UPDATE projects SET documentation = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
-        .run(documentation, 'approved', projectId);
+    if (projectId) {
+      if (!projectRepo.getById(projectId)) {
+        projectRepo.create({
+          id: projectId,
+          name: analysis?.clientName || 'Nuevo Proyecto',
+          status: 'created'
+        });
+        if (analysis) projectRepo.saveData(projectId, 'analysis', analysis);
+        if (projectStructure?.weeks) projectRepo.saveData(projectId, 'weeks', projectStructure.weeks);
+      }
+      projectRepo.saveData(projectId, 'documentation', documentation);
+      projectRepo.updateProject(projectId, { status: 'approved' });
     }
 
     res.json({
@@ -327,9 +319,17 @@ app.post('/api/project/approve', async (req, res) => {
 
     const result = await createClickUpProject(projectWithDoc, finalConfig);
 
-    if (projectId && db) {
-      db.prepare('UPDATE projects SET documentation = ?, status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?')
-        .run(documentation, 'approved', projectId);
+    if (projectId) {
+      if (!projectRepo.getById(projectId)) {
+        projectRepo.create({
+          id: projectId,
+          name: analysis?.clientName || 'Nuevo Proyecto',
+          status: 'created'
+        });
+        if (analysis) projectRepo.saveData(projectId, 'analysis', analysis);
+      }
+      projectRepo.saveData(projectId, 'documentation', documentation);
+      projectRepo.updateProject(projectId, { status: 'approved' });
     }
 
     res.json({

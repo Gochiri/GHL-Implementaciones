@@ -229,8 +229,15 @@ watch([clientName, weeks, projectDocumentation], () => {
   updateStats()
 }, { deep: true })
 
-onMounted(() => {
-  loadProject()
+onMounted(async () => {
+  await loadProject()
+  // Check for hash and scroll
+  if (route.hash === '#blueprint') {
+    setTimeout(() => {
+      const el = document.getElementById('blueprint')
+      if (el) el.scrollIntoView({ behavior: 'smooth' })
+    }, 500)
+  }
 })
 
 
@@ -702,7 +709,7 @@ const generateQuotation = async () => {
     </div>
 
     <!-- Technical Blueprint Preview (Shows after approval) -->
-    <div v-if="projectDocumentation || isEditingBlueprint" class="blueprint-section fadeIn">
+    <div id="blueprint" v-if="projectDocumentation || isEditingBlueprint" class="blueprint-section fadeIn">
       <div class="panel-header">
         <h2>📘 Blueprint Técnico GHL</h2>
         <div class="header-actions">

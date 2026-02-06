@@ -106,14 +106,16 @@ const loadProposalData = async () => {
         if (project.quotation.investment) proposalData.value.investment = project.quotation.investment
         if (project.quotation.timeline) proposalData.value.timeline = project.quotation.timeline
         if (project.quotation.solutions) {
-          proposalData.value.solutions = project.quotation.solutions.map(s => 
-            typeof s === 'string' ? s : s.name || s.text || JSON.stringify(s)
-          )
+          proposalData.value.solutions = project.quotation.solutions.map(s => {
+             if (typeof s === 'string') return s;
+             return s.text || s.name || s.solution || JSON.stringify(s);
+          });
         }
         if (project.quotation.painPoints) {
-          proposalData.value.painPoints = project.quotation.painPoints.map(p => 
-            typeof p === 'string' ? p : p.text || p.dolor || JSON.stringify(p)
-          )
+          proposalData.value.painPoints = project.quotation.painPoints.map(p => {
+             if (typeof p === 'string') return p;
+             return p.text || p.dolor || p.painPoint || JSON.stringify(p);
+          });
         }
       }
       

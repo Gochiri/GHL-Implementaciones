@@ -24,3 +24,9 @@ lerna-debug.log*
 .vercel
 .env*.local
 package-lock.json
+
+# SQLite
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db

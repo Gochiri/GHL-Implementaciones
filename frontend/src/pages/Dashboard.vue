@@ -187,7 +187,7 @@ const getProposalPath = (analysis) => {
           <span class="action-title">Nueva Propuesta</span>
           <span class="action-desc">Generar propuesta HTML</span>
         </router-link>
-        <router-link v-if="latestBlueprintProject" :to="getProjectPath(latestBlueprintProject)" class="action-card blueprint-card">
+        <router-link v-if="latestBlueprintProject" :to="getProjectPath(latestBlueprintProject) + '#blueprint'" class="action-card blueprint-card">
           <span class="action-icon">📘</span>
           <span class="action-title">Último Blueprint</span>
           <span class="action-desc">Ver: {{ latestBlueprintProject.client }}</span>
@@ -246,7 +246,7 @@ const getProposalPath = (analysis) => {
               <td>
                 <router-link :to="getProjectPath(analysis)" class="btn-icon" title="Ver estructura">👁️</router-link>
                 <router-link :to="getProposalPath(analysis)" class="btn-icon" title="Ver propuesta">📄</router-link>
-                <router-link v-if="analysis.documentation" :to="getProjectPath(analysis)" class="btn-icon blue-glow" title="Ver Blueprint">📘</router-link>
+                <router-link v-if="analysis.documentation" :to="getProjectPath(analysis) + '#blueprint'" class="btn-icon blue-glow" title="Ver Blueprint">📘</router-link>
               </td>
             </tr>
           </tbody>

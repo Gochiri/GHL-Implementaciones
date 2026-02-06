@@ -33,7 +33,7 @@
 - **Puerto:** 5173 (dev)
 
 ### Almacenamiento Actual
-- **localStorage** para proyectos (temporal - pendiente migrar a DB)
+- **SQLite** (via `better-sqlite3`) para base de datos local
 - **Memoria** para webhooks GHL (temporal)
 
 ## Estructura de Carpetas
@@ -128,18 +128,18 @@ npm run dev
 - Dashboard con métricas básicas
 - Lista de proyectos con nombre del cliente
 - Botón "Generar Proyecto" ahora llama a `/api/project-structure` para crear semanas/tareas
+- **Backend Persistence**: Migrado a SQLite con soporte para JSON blobs.
+- **Frontend Fix**: Propuestas renderizan HTML correctamente.
 
 ### ⚠️ Parcialmente Funciona / En Pruebas
 - ProjectBuilder: Ahora genera estructura, pendiente verificar visualización
 - Generación de propuestas: Genera HTML pero se muestra como código raw (pendiente renderizar)
-- ClickUp integration: Configurado pero no probado end-to-end
+- ClickUp integration: Configurado, pero falló prueba por credenciales inválidas.
 
 ### ❌ No Funciona / Pendiente
-- Persistencia real (todo en localStorage)
 - Autenticación de usuarios
 - Webhooks de GHL (en memoria, se pierden)
-- Tests (0% coverage)
-- Propuesta muestra HTML raw en vez de renderizado
+- Tests frontend (0% coverage, backend basic tests added)
 
 ## Bugs Conocidos
 
@@ -169,8 +169,8 @@ Ver `.planning/mejoras.md` para lista completa.
 1. **Verificar que ProjectBuilder muestre la estructura generada** - Probar flujo completo
 2. **Arreglar propuesta HTML** - Se muestra como código, debería renderizarse
 3. **Probar integración ClickUp** - End-to-end
-4. **Migrar a base de datos** - SQLite o PostgreSQL
-5. **Agregar tests básicos** - Al menos para ai-analyzer.js
+4. **Migrar a base de datos** - ✅ Listo (SQLite)
+5. **Agregar tests básicos** - ✅ Listo (Backend)
 
 ## Archivos Clave para Modificar
 
