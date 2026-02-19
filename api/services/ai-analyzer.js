@@ -209,12 +209,12 @@ REGLAS CRÍTICAS:
   };
 }
 
-export async function generateQuotation(analysis, projectStructure, apiKey = null) {
+// ── NUEVO: Extracción de scope GHL como función pública ───────────────────
+export async function extractGHLScope(analysis, apiKey = null) {
   const client = getOpenAI(apiKey);
   if (!client) throw new Error('OpenAI API key required');
 
-  // Step 1: Use AI to extract structured scope from analysis
-  const scopePrompt = `Analiza el siguiente roadmap/análisis y extrae los módulos GHL necesarios en formato JSON estructurado.
+  const scopePrompt = `Analiza el siguiente roadmap/análisis de implementación GHL y extrae los módulos técnicos necesarios en formato JSON estructurado.
 
 IMPORTANTE: Responde ÚNICAMENTE con JSON válido, sin markdown ni explicaciones.
 
@@ -235,21 +235,20 @@ Estructura requerida:
 Roadmap a analizar:
 ${analysis.roadmap || JSON.stringify(analysis)}`;
 
-  let scope = {};
   try {
-    const scopeResponse = await client.chat.completions.create({
+    const response = await client.chat.completions.create({
       model: AI_MODEL,
       messages: [
-        { role: 'system', content: 'Eres un experto en extraer scope técnico de proyectos GHL. Responde SOLO JSON.' },
+        { role: 'system', content: 'Eres un experto en extraer scope técnico de proyectos GHL. Responde SOLO JSON válido.' },
         { role: 'user', content: scopePrompt }
       ],
       response_format: { type: 'json_object' },
       temperature: 0.2
     });
-    scope = JSON.parse(scopeResponse.choices[0].message.content);
+    return JSON.parse(response.choices[0].message.content);
   } catch (e) {
-    console.warn('Failed to extract scope, using defaults:', e.message);
-    scope = {
+    console.warn('extractGHLScope fallback:', e.message);
+    return {
       cliente: analysis.clientName || 'Cliente',
       setup_subcuenta: 'completo',
       pipelines: [{ nombre: 'Pipeline Principal', etapas: 7 }],
@@ -262,22 +261,202 @@ ${analysis.roadmap || JSON.stringify(analysis)}`;
       soporte: true
     };
   }
+}
 
-  // Step 2: Calculate pricing using cotizador logic (JS port)
+export async function generateQuotation(analysis, projectStructure, apiKey = null, existingScope = null) {
+  const client = getOpenAI(apiKey);
+  if (!client) throw new Error('OpenAI API key required');
+
+  const cotizadorSkill = getSkillPrompt('ghl-cotizador');
+  const mapperSkill = getSkillPrompt('ghl-onboarding-mapper');
+
+  // Step 1: Use existing scope or extract it
+  let scope = existingScope;
+  if (!scope) {
+    scope = await extractGHLScope(analysis, apiKey);
+  }
+
+  // Step 2: Calculate baseline pricing using the cotizador JS engine
   const cotizacion = calcularCotizacion(scope);
+  const aLaCarte = cotizacion.a_la_carte;
 
-  // Return full quotation object
+  // Step 3: Build context for the AI to generate 3 tiered options
+  const clientName = analysis.clientName || scope.cliente || 'Cliente';
+  const today = new Date();
+  const validity = new Date(today);
+  validity.setDate(validity.getDate() + 30);
+  const fmtDate = (d) => d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const pricingContext = `
+Precios calculados por el cotizador (BASE DE VERDAD - ÚSALOS EXACTAMENTE):
+- Setup base à la carte: $${aLaCarte.setup} USD
+- Mensual base à la carte: $${aLaCarte.mensual} USD/mes
+- Desglose por módulo: ${JSON.stringify(aLaCarte.desglose, null, 2)}
+
+Para las 3 opciones tienes que:
+- OPCIÓN 1 (MVP): usa 40-50% del scope total. Precio ≈ $${Math.round(aLaCarte.setup * 0.45)} setup + $${Math.round(aLaCarte.mensual * 0.6)} mensual
+- OPCIÓN 2 (Recomendada): el scope normal calculado arriba = $${aLaCarte.setup} setup + $${aLaCarte.mensual} mensual
+- OPCIÓN 3 (Completa/Enterprise): scope expandido ≈ $${Math.round(aLaCarte.setup * 1.5)} setup + $${Math.round(aLaCarte.mensual * 1.3)} mensual
+
+REGLAS DE PRECIOS:
+${cotizadorSkill || 'Usa la tabla de precios del cotizador GHL.'}
+`;
+
+  const systemPrompt = `Eres un experto en implementaciones GoHighLevel y redactas propuestas comerciales profesionales.
+Debes generar una propuesta COMPLETA en texto/markdown siguiendo el formato indicado.
+El documento debe ser directo, profesional, sin relleno innecesario.
+
+${mapperSkill ? `METODOLOGÍA GHL:\n${mapperSkill.substring(0, 800)}` : ''}`;
+
+  const prompt = `
+Genera una propuesta de implementación GHL para este cliente:
+
+CLIENTE: ${clientName}
+ANÁLISIS DEL PROYECTO:
+${JSON.stringify({
+    objetivos: analysis.objectives,
+    painPoints: analysis.painPoints,
+    roadmap: analysis.roadmap,
+    complejidad: analysis.complexity
+  }, null, 2)}
+
+SCOPE GHL DETECTADO:
+${JSON.stringify(scope, null, 2)}
+
+${pricingContext}
+
+FECHA HOY: ${fmtDate(today)}
+VALIDEZ: ${fmtDate(validity)}
+
+Genera la propuesta con EXACTAMENTE este formato (rellena con datos reales del cliente):
+
+---
+# Propuesta Implementación GHL
+## [NOMBRE DEL PROYECTO] — [NOMBRE CLIENTE]
+
+**Fecha:** [fecha]  
+**Validez:** 30 días  
+**Preparado por:** GHL Team Latam
+
+---
+
+## TU SISTEMA EN SÍNTESIS
+
+[2-3 párrafos que resumen qué se va a implementar, mencionando el flujo del sistema, el contexto del cliente, y qué parte implementamos nosotros. Si hay un flujo de fases (como Meta→Landing→GHL), mostrarlo con flechas ↓]
+
+---
+
+## 🎯 NUESTRO SCOPE (SOLO GOHIGHLEVEL)
+
+**✅ Lo que SÍ incluimos:**
+
+[Lista de elementos GHL específicos del proyecto]
+
+**❌ Lo que NO incluimos (ya lo tiene el cliente):**
+
+[Lista de lo que queda fuera]
+
+---
+
+## 3 OPCIONES DE IMPLEMENTACIÓN
+
+### ⚡ OPCIÓN 1: MVP
+[Nombre relevante para este cliente]
+
+[Descripción breve — para quién es ideal]
+
+**GoHighLevel:**
+[Lista de lo que incluye — específico para este cliente]
+
+**Inversión:**
+- Setup: $[precio] USD (pago único)
+- Mensual: $[precio] USD
+- Timeline: [semanas]
+
+---
+
+### 🎯 OPCIÓN 2: [NOMBRE] (RECOMENDADO)
+
+[Descripción y por qué lo recomendamos]
+
+**Todo lo anterior MÁS:**
+[Lista de extras]
+
+**Inversión:**
+- Setup: $[precio] USD (pago único)
+- Mensual: $[precio] USD
+- Timeline: [semanas]
+
+---
+
+### 🚀 OPCIÓN 3: SISTEMA COMPLETO
+
+[Descripción — para quién]
+
+**Todo lo anterior MÁS:**
+[Lista de extras]
+
+**Inversión:**
+- Setup: $[precio] USD (pago único)
+- Mensual: $[precio] USD
+- Timeline: [semanas]
+
+---
+
+## MODALIDADES DE PAGO
+
+[Para la Opción 2 recomendada, mostrar las 3 formas de pago: 100% upfront / 50-50 / cuotas con sus porcentajes de recargo]
+
+---
+
+## FASES DE TRABAJO
+
+[4 fases típicas: Setup → Testing → Go-Live → Replicación, adaptadas al proyecto]
+
+---
+
+## GARANTÍAS
+
+[3-4 garantías específicas del proyecto]
+
+---
+
+## NEXT STEPS
+
+[3-4 pasos concretos para arrancar, incluyendo qué accesos se necesitan]
+
+---
+
+*Validez cotización: ${fmtDate(validity)}*  
+*Precios en USD*
+`;
+
+  const response = await client.chat.completions.create({
+    model: AI_MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt }
+    ],
+    temperature: 0.4,
+    max_tokens: 3000
+  });
+
+  const proposalText = response.choices[0].message.content;
+
   return {
-    cliente: scope.cliente || analysis.clientName,
+    // The main output: rich text proposal
+    document: proposalText,
+    // Legacy / structured fields for backwards compat
+    cliente: clientName,
     scope: scope,
-    ...cotizacion,
-    // Legacy fields for backwards compatibility
-    investment: cotizacion.a_la_carte?.setup || 0,
-    monthlyFee: cotizacion.a_la_carte?.mensual || 0,
+    a_la_carte: aLaCarte,
+    investment: aLaCarte.setup,
+    monthlyFee: aLaCarte.mensual,
     timeline: `${projectStructure?.length || 4} semanas`,
     roi: { multiplier: 3, description: 'ROI estimado basado en eficiencia operativa' }
   };
 }
+
 
 // ── COTIZADOR GHL (JS Port) ─────────────────────────────────────────────────
 

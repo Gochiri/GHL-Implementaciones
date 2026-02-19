@@ -7,11 +7,31 @@ const route = useRoute()
 const sidebarOpen = ref(true)
 
 const navItems = [
-  { path: '/', icon: '📊', label: 'Dashboard' },
-  { path: '/kanban', icon: '📅', label: 'Tareas' },
-  { path: '/analyzer', icon: '🎯', label: 'Analizador' },
-  { path: '/projects', icon: '📋', label: 'Proyectos' },
-  { path: '/settings', icon: '⚙️', label: 'Configuración' }
+  {
+    path: '/',
+    label: 'Dashboard',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>`
+  },
+  {
+    path: '/kanban',
+    label: 'Tareas',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 11 3 3L22 4"/></svg>`
+  },
+  {
+    path: '/analyzer',
+    label: 'Analizador',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>`
+  },
+  {
+    path: '/projects',
+    label: 'Proyectos',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`
+  },
+  {
+    path: '/settings',
+    label: 'Configuración',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 0-14.14 0M4.93 19.07a10 10 0 0 0 14.14 0"/><path d="M12 2v2m0 18v2M2 12h2m18 0h2"/><path d="m4.22 4.22 1.42 1.42m12.72 12.72 1.42 1.42m0-16.56-1.42 1.42M5.64 18.36l-1.42 1.42"/></svg>`
+  }
 ]
 
 const isActive = (path) => route.path === path
@@ -23,11 +43,14 @@ const isActive = (path) => route.path === path
     <aside class="sidebar" :class="{ collapsed: !sidebarOpen }">
       <div class="sidebar-header">
         <div class="logo">
-          <span class="logo-icon">🚀</span>
+          <span class="logo-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
+          </span>
           <span class="logo-text" v-if="sidebarOpen">GHL Assistant</span>
         </div>
-        <button class="toggle-btn" @click="sidebarOpen = !sidebarOpen">
-          {{ sidebarOpen ? '◀' : '▶' }}
+        <button class="toggle-btn" @click="sidebarOpen = !sidebarOpen" :title="sidebarOpen ? 'Colapsar' : 'Expandir'">
+          <svg v-if="sidebarOpen" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
         </button>
       </div>
       
@@ -38,8 +61,9 @@ const isActive = (path) => route.path === path
           :to="item.path"
           class="nav-item"
           :class="{ active: isActive(item.path) }"
+          :title="!sidebarOpen ? item.label : ''"
         >
-          <span class="nav-icon">{{ item.icon }}</span>
+          <span class="nav-icon" v-html="item.svg"></span>
           <span class="nav-label" v-if="sidebarOpen">{{ item.label }}</span>
         </router-link>
       </nav>

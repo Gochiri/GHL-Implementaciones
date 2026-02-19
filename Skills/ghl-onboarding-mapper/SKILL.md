@@ -22,7 +22,7 @@ This skill analyzes Spanish or English transcriptions from client planning sessi
 Extract key implementation components from the transcription:
 
 **Lead Sources (LS)**: Identify all traffic sources and lead entry points
-- Instagram DMs, Meta campaigns, landing pages, website forms
+- Instagram DMs, Meta campaigns, landing pages, WhatsApp, website forms
 - Assign LS01, LS02, LS03... in logical order
 
 **Sales Pipeline (SP)**: Extract sales stages and progression

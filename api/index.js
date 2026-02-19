@@ -8,7 +8,8 @@ import {
   askHormoziQuestion,
   generateProjectStructure,
   generateQuotation,
-  generateGHLDocumentation
+  generateGHLDocumentation,
+  extractGHLScope
 } from './services/ai-analyzer.js';
 import { executeSkill } from './services/skill-service.js';
 import { createClickUpProject, updateTaskStatus } from './services/clickup-service.js';
@@ -242,8 +243,8 @@ app.post('/api/project-structure', async (req, res) => {
 // Generate quotation
 app.post('/api/quotation', async (req, res) => {
   try {
-    const { analysis, projectStructure, projectId, apiKey } = req.body;
-    const quotation = await generateQuotation(analysis, projectStructure, apiKey);
+    const { analysis, projectStructure, projectId, apiKey, ghlScope } = req.body;
+    const quotation = await generateQuotation(analysis, projectStructure, apiKey, ghlScope);
 
     if (projectId) {
       if (!projectRepo.getById(projectId)) {
@@ -262,6 +263,26 @@ app.post('/api/quotation', async (req, res) => {
     res.json(quotation);
   } catch (error) {
     console.error('Quotation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── NUEVO: Extraer scope GHL estructurado ──────────────────────────────────
+// Recibe el análisis y devuelve el scope estructurado para el cotizador
+app.post('/api/map-scope', async (req, res) => {
+  try {
+    const { analysis, projectId, apiKey } = req.body;
+    if (!analysis) return res.status(400).json({ error: 'analysis is required' });
+
+    const scope = await extractGHLScope(analysis, apiKey);
+
+    if (projectId) {
+      projectRepo.saveData(projectId, 'ghl_scope', scope);
+    }
+
+    res.json({ scope });
+  } catch (error) {
+    console.error('Map scope error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -369,13 +390,18 @@ app.post('/api/webhook/ghl', async (req, res) => {
     const { contact, pipeline_stage, message } = req.body;
     const id = Date.now().toString();
 
-    if (db) {
-      const stmt = db.prepare(`
-        INSERT INTO webhooks (id, contact, stage, message)
-        VALUES (?, ?, ?, ?)
+    // Save via projectRepo DB connection
+    try {
+      const { db } = await import('./services/db.js');
+      if (db && db.db) {
+        const stmt = db.db.prepare(`
+          INSERT OR IGNORE INTO webhooks (id, contact, stage, message)
+          VALUES (?, ?, ?, ?)
         `);
-
-      stmt.run(id, JSON.stringify(contact || { name: 'Lead Desconocido' }), pipeline_stage || 'Review', message || '');
+        stmt.run(id, JSON.stringify(contact || { name: 'Lead Desconocido' }), pipeline_stage || 'Review', message || '');
+      }
+    } catch (dbErr) {
+      console.warn('Webhook DB save skipped:', dbErr.message);
     }
 
     res.json({ success: true, id });

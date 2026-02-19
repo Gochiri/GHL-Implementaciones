@@ -1,63 +1,131 @@
 ---
-name: GHL Cotizador
-description: Herramienta para calcular el presupuesto de implementaciones en GoHighLevel (GHL) basándose en módulos y paquetes predefinidos.
+name: ghl-cotizador
+description: Genera cotizaciones profesionales para implementaciones GHL a partir del desglose de la skill de mapeo (ghl-onboarding-mapper). Usar cuando el usuario pida precio, cotización, propuesta económica, o cuando ya tenga un desglose de implementación listo y necesite convertirlo en números. Produce cotización con desglose por módulo, comparación de paquetes, recomendación automática y resumen ejecutivo listo para enviar al cliente.
 ---
 
-# GHL Cotizador Skill
+# GHL Cotizador
 
-Este skill proporciona la lógica y los datos necesarios para generar cotizaciones precisas de implementaciones en GoHighLevel. Incluye factores de escala para CRM, automatizaciones, chatbots, landing pages, y más.
+Convierte un desglose de implementación GHL en una cotización profesional completa.
 
-## Scripts Disponibles
-- `ghl_cotizador.py`: Script central que implementa la lógica de cálculo, comparación de paquetes y recomendación basado en el scope del cliente.
+## Flujo de trabajo
 
-## Tabla de Precios de Referencia
-
-### MÓDULO 0: SETUP DE SUBCUENTA
-*(Siempre independiente de los paquetes)*
-
-| Escenario | Precio |
-|-----------|--------|
-| Setup completo (DNS + dominio + WhatsApp + correos) | $250 |
-| Solo validación (cliente ya tiene todo) | $100 |
+1. **Recibir el desglose** — del usuario directamente o del output de la skill ghl-onboarding-mapper
+2. **Leer la tabla de precios** — ver `references/tabla_precios.md`
+3. **Ejecutar el cálculo** — usar `scripts/ghl_cotizador.py` con el scope del cliente
+4. **Generar el output** — cotización desglosada + recomendación de paquete + resumen ejecutivo
 
 ---
 
-## MÓDULOS CON FACTORES DE ESCALA
+## Paso 1: Parsear el desglose en un scope
 
-### Fórmula general
-**Precio del módulo = Base + (unidades que supera el límite × precio por unidad extra)**
+El desglose puede llegar de dos formas:
 
-### Detalle de Módulos (Base y Extras)
+**A) Output de la skill de mapeo** — ya tiene los workflows con sus códigos (LS01, SP02...) y cantidad de nodos. Extraer directamente.
 
-| Módulo | Base | Límite Incluido | Precio Unidad Extra |
-|--------|------|-----------------|----------------------|
-| **1. CRM** | $250 | 2 Pipelines, 5 Etapas/p, 2 Vistas | $60 (Pip), $15 (Etapa), $25 (Vista) |
-| **2. Workflows** | $350 | 3 Workflows, 8 Nodos/w | $70 (WF), $12 (Nodo) |
-| **3. Chatbot (AI)**| $400 | 1 Chatbot, 10 Nodos | $200 (CB), $15 (Nodo), $150 (IA Avanzada) |
-| **4. Integraciones**| $300 | 1 Integración | $300 (Extra) |
-| **5. Documentos** | $200 | 2 Plantillas | $50 (Extra) |
-| **6. Calendarios** | $180 | Fijo | - |
-| **7. Landing Pages**| $450 | 1 Page, 5 Secciones | $300 (Page), $40 (Sección) |
-| **8. Reportes** | $250 | Fijo (+$60/mes) | - |
+**B) Descripción libre del usuario** — el usuario describe lo que necesita el cliente. Extraer los datos y armar el scope.
 
-> *Nota: El Módulo 3 (Chatbot) tiene un costo mensual de $80 por unidad activa. El Módulo 4 (Integraciones) tiene un costo mensual de $50 por unidad activa.*
+El scope que necesita el script tiene esta estructura:
+
+```python
+scope = {
+    "cliente": "Nombre del cliente",
+    "setup_subcuenta": "completo",        # "completo" o "validacion"
+    "pipelines": [                         # lista de pipelines con sus etapas
+        {"nombre": "Sales", "etapas": 7},
+    ],
+    "vistas_filtros": 3,                   # cantidad total
+    "workflows": [                         # lista de workflows con sus nodos
+        {"nombre": "SP01", "nodos": 12},
+    ],
+    "chatbots": [                          # lista de chatbots
+        {"nombre": "WhatsApp Bot", "nodos": 14, "ia_avanzada": True},
+    ],
+    "integraciones": 2,                    # cantidad total
+    "plantillas": 3,                       # cantidad total
+    "calendarios": True,                   # bool
+    "landing_pages": [                     # lista de pages con secciones
+        {"nombre": "Principal", "secciones": 6},
+    ],
+    "reportes": True,                      # bool
+    "sesiones_capacitacion": 2,            # cantidad
+    "soporte": True,                       # bool
+    "pago_anual_soporte": False,           # bool, aplica 15% descuento en soporte mensual
+}
+```
+
+Si algo no aplica, no lo incluyas en el scope.
 
 ---
 
-## PAQUETES PREDEFINIDOS
+## Paso 2: Ejecutar el cálculo
 
-| Paquete | Setup | Mensual | Incluye |
-|---------|-------|---------|---------|
-| **Starter** | $900 | $150 | CRM (2p/5e), Workflows (3w/8n), 1 Cap., Soporte |
-| **Pro** | $1,800| $280 | CRM (2p/7e), Workflows (6w/10n), 1 Chatbot(10n), Documentos (3), Cal., 2 Cap., Soporte |
-| **Enterprise**| $3,200| $400 | Todo Pro + 2 Integraciones, Reportes, Landing (1p/6s), 3 Cap., Soporte Prioritario |
+Crear un script temporal que importa el cotizador y ejecuta el cálculo con el scope del cliente:
+
+```python
+import sys
+sys.path.insert(0, 'scripts')
+from ghl_cotizador import calcular_cotizacion
+import json
+
+scope = { ... }  # el scope parseado
+
+resultado = calcular_cotizacion(scope)
+print(json.dumps(resultado, indent=2, ensure_ascii=False))
+```
 
 ---
 
-## REGLAS DE CÁLCULO ESTRATÉGICO
+## Paso 3: Generar el output
 
-1. **Setup de Subcuenta:** Se suma SIEMPRE al total.
-2. **Excedentes:** Si se elige un paquete pero el scope supera sus límites, se cobran los extras según los factores de escala del módulo correspondiente.
-3. **À la carte:** Si no hay ahorro con paquetes, se suma cada base + extras individualmente.
-4. **Descuento Anual:** 15% de descuento solo en la cuota de **Soporte** ($127.50 vs $150) si se paga el año por adelantado.
-5. **Recomendación:** El cotizador siempre prioriza el paquete con mayor ahorro en el primer año (Setup + 12 meses).
+Con los números del resultado, generar tres cosas en orden:
+
+### 3a. Cotización desglosada (para uso interno)
+
+Tabla clara con cada módulo, su precio base, extras y total. Formato PDF-ready.
+
+### 3b. Recomendación de paquete
+
+El script ya calcula esto automáticamente. Si ningún paquete genera ahorro, recomienda à la carte y explica por qué (scope pesado que supera los límites de todos los paquetes).
+
+### 3c. Resumen ejecutivo (para enviar al cliente)
+
+Formato profesional, en español. Incluye:
+- Nombre del cliente
+- Descripción breve de lo que se implementa (sin detalle técnico interno)
+- Precio setup (one-time)
+- Precio mensual
+- Qué incluye el precio
+- Nota sobre el setup de subcuenta si aplica
+- Validez de la cotización (usar 30 días por defecto)
+
+**Tono del resumen ejecutivo:** profesional pero cercano. No usar jerga técnica. El cliente no necesita saber de nodos ni triggers.
+
+---
+
+## Ejemplo de output completo
+
+Cuando el usuario pida la cotización, el output debe tener estas tres secciones visibles:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  COTIZACIÓN INTERNA — [Nombre cliente]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Tabla desglosada por módulo con base + extras + totales]
+[Comparación: à la carte vs paquetes]
+[Recomendación marcada]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RESUMEN EJECUTIVO — Listo para enviar
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Texto profesional para el cliente]
+```
+
+---
+
+## Reglas importantes
+
+- Setup de Subcuenta siempre va separado, nunca dentro de paquetes.
+- Si el usuario no menciona setup de subcuenta, preguntar si el cliente ya tiene la cuenta configurada.
+- Los precios son en USD siempre.
+- El resumen ejecutivo nunca muestra los precios internos de los extras por unidad. Solo muestra el precio total por módulo o el precio del paquete recomendado.
+- Si el scope es muy pesado (workflows con 20+ nodos, 6+ workflows), mencionar al usuario que la cotización refleja un proyecto de alta complejidad y que tiene sentido comunicarlo al cliente como un valor diferencial.

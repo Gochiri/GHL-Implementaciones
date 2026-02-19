@@ -24,6 +24,8 @@ const totalHours = ref(0)
 const totalDuration = ref('')
 const projectQuotation = ref(null)
 const isGeneratingQuote = ref(false)
+const projectScope = ref(null)
+const selectedPackage = ref('pro') // 'basic', 'pro', 'elite' or 'custom'
 
 const getSettings = () => {
   const saved = localStorage.getItem('ghl-settings')
@@ -45,6 +47,17 @@ const getLocalAnalysis = (id) => {
       if (parsed.id === id) return parsed
     } catch (e) {}
   }
+  return null
+}
+
+const getLocalScope = (id) => {
+  try {
+    const saved = localStorage.getItem('last-analysis')
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (parsed.id === id && parsed.ghlScope) return parsed.ghlScope
+    }
+  } catch(e) {}
   return null
 }
 
@@ -107,6 +120,7 @@ const loadProject = async () => {
     if (localAnalysis) {
       clientName.value = localAnalysis.clientName || 'Nuevo Cliente'
       projectAnalysis.value = localAnalysis
+      projectScope.value = getLocalScope(projectId)
     }
     
     if (savedWeeks) {
@@ -130,6 +144,7 @@ const loadProject = async () => {
         
         if (project.projectType) projectType.value = project.projectType
         if (project.analysis) projectAnalysis.value = project.analysis
+        if (project.scope) projectScope.value = project.scope
         if (project.documentation) projectDocumentation.value = project.documentation
       }
     } catch (error) {
@@ -175,6 +190,7 @@ const saveProjectState = async (newStatus = null) => {
     projectType: projectType.value,
     documentation: projectDocumentation.value,
     analysis: projectAnalysis.value,
+    scope: projectScope.value,
     date: new Date().toISOString()
   }
   if (newStatus) data.status = newStatus
@@ -449,7 +465,8 @@ const generateQuotation = async () => {
 
   isGeneratingQuote.value = true
   try {
-    const quote = await api.quotation(projectAnalysis.value, weeks.value, projectId)
+    // Pass the mapped scope if available
+    const quote = await api.quotation(projectAnalysis.value, weeks.value, projectId, projectScope.value)
     projectQuotation.value = quote
     
     // Save quotation to localStorage for proposal consistency
@@ -470,7 +487,18 @@ const generateQuotation = async () => {
     isGeneratingQuote.value = false
   }
 }
+
+const copyQuotation = async () => {
+  if (!projectQuotation.value?.document) return
+  try {
+    await navigator.clipboard.writeText(projectQuotation.value.document)
+    alert('✅ Propuesta copiada al portapapeles')
+  } catch (e) {
+    console.warn('Copy failed', e)
+  }
+}
 </script>
+
 
 <template>
   <div class="project-builder">
@@ -567,52 +595,49 @@ const generateQuotation = async () => {
       <!-- Right: Config & Preview -->
       <div class="config-panel">
         <!-- Quotation Section -->
-        <div class="config-section quote-section fadeIn">
-          <div class="section-header">
-            <h3>💰 Cotización Estratégica</h3>
-            <button 
-              class="btn btn-secondary btn-sm" 
-              @click="generateQuotation"
-              :disabled="isGeneratingQuote"
-            >
-              {{ isGeneratingQuote ? 'Calculando...' : 'Recalcular' }}
-            </button>
-          </div>
-          
-          <div v-if="projectQuotation" class="quote-content expanded">
-            <!-- Quick Summary Stats -->
-            <div class="quote-stat-row">
-              <div class="quote-stat primary">
-                <span class="q-label">Inversión Setup</span>
-                <span class="q-value">${{ (projectQuotation.a_la_carte?.setup || projectQuotation.investment || 0).toLocaleString() }}</span>
-              </div>
-              <div class="quote-stat">
-                <span class="q-label">Fee Mensual</span>
-                <span class="q-value">${{ (projectQuotation.a_la_carte?.mensual || projectQuotation.monthlyFee || 97).toLocaleString() }}/mes</span>
-              </div>
-              <div class="quote-stat">
-                <span class="q-label">ROI Est.</span>
-                <span class="q-value green">{{ projectQuotation.roi?.multiplier || '3-5' }}x</span>
+          <div class="config-section quote-section fadeIn">
+            <div class="section-header">
+              <h3>💰 Cotización Estratégica</h3>
+              <div class="header-actions">
+                <button
+                  v-if="projectQuotation?.document"
+                  class="btn btn-ghost btn-sm"
+                  @click="copyQuotation"
+                  title="Copiar al portapapeles"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                  Copiar
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  @click="generateQuotation"
+                  :disabled="isGeneratingQuote"
+                >
+                  <svg v-if="!isGeneratingQuote" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                  {{ isGeneratingQuote ? 'Generando...' : (projectQuotation ? 'Regenerar' : 'Generar') }}
+                </button>
               </div>
             </div>
 
-            <!-- Expandable Full Breakdown -->
-            <details class="quote-details">
-              <summary>📋 Ver desglose completo</summary>
-              <div class="quote-desglose-wrapper">
-                <CotizacionDesglose
-                  :client-name="clientName"
-                  :scope="projectAnalysis || {}"
-                  :cotizacion="projectQuotation"
-                />
-              </div>
-            </details>
+            <!-- Document View -->
+            <div v-if="projectQuotation?.document" class="quote-document">
+              <div class="proposal-doc" v-html="renderMarkdown(projectQuotation.document)"></div>
+            </div>
+
+            <!-- Empty State -->
+            <div v-else-if="!isGeneratingQuote" class="quote-empty">
+              <div class="empty-icon-small">📄</div>
+              <p>El AI generará una propuesta completa con 3 opciones de precios<br>basada en el análisis y el cotizador GHL.</p>
+              <button class="btn btn-primary btn-sm" @click="generateQuotation">Generar Propuesta</button>
+            </div>
+
+            <!-- Loading State -->
+            <div v-else class="quote-loading">
+              <div class="loading-spinner"></div>
+              <p>Analizando scope y redactando propuesta...</p>
+            </div>
+
           </div>
-          <div v-else class="quote-empty">
-            <span v-if="isGeneratingQuote" class="loading-spinner"></span>
-            <p v-else>Haz clic en Recalcular para generar la cotización...</p>
-          </div>
-        </div>
 
         <!-- Tags -->
         <div class="config-section">
@@ -1380,13 +1405,258 @@ const generateQuotation = async () => {
 }
 
 .q-value {
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 800;
   color: #fff;
+  letter-spacing: -0.5px;
+}
+
+.q-value .per-month {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
 }
 
 .q-value.green {
   color: var(--success);
+}
+
+/* Proposal Document Styles */
+.quote-document {
+  margin-top: 8px;
+}
+
+.proposal-doc {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 24px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+  max-height: 600px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.proposal-doc h1 {
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+  margin: 0 0 4px;
+  line-height: 1.3;
+}
+
+.proposal-doc h2 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary-light);
+  margin: 20px 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.proposal-doc h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 16px 0 8px;
+}
+
+.proposal-doc strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+.proposal-doc em {
+  color: var(--text-secondary);
+}
+
+.proposal-doc hr {
+  border: none;
+  border-top: 1px solid var(--glass-border);
+  margin: 16px 0;
+}
+
+.proposal-doc ul {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+
+.proposal-doc li {
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+}
+
+.proposal-doc p {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+
+.quote-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.q-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 0.2s;
+}
+
+.q-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--primary-light);
+}
+
+.q-card.investment .q-value {
+  color: var(--accent);
+  text-shadow: 0 0 20px rgba(0, 245, 255, 0.3);
+}
+
+.q-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.roi-banner {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.1) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.roi-icon {
+  font-size: 20px;
+}
+
+.roi-text strong {
+  display: block;
+  color: var(--success);
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.roi-text p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.quote-breakdown h4 {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+
+.breakdown-table-wrapper {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  overflow: hidden;
+}
+
+.breakdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.breakdown-table th {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-weight: 600;
+  padding: 10px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.breakdown-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  vertical-align: top;
+}
+
+.breakdown-table tr:last-child td {
+  border-bottom: none;
+}
+
+.item-name {
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.item-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.text-right {
+  text-align: right;
+}
+
+.text-mono {
+  font-family: var(--font-mono);
+  color: var(--primary-light);
+}
+
+.total-row td {
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 700;
+  color: #fff;
+  border-top: 1px solid var(--glass-border);
+}
+
+.quote-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.empty-icon-small {
+  font-size: 32px;
+  opacity: 0.5;
+}
+
+.quote-loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-secondary);
 }
 
 .quote-solutions {

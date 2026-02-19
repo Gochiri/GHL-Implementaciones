@@ -1,7 +1,22 @@
 <script setup>
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '../api.js'
+
+// --- Simple markdown renderer for roadmap display ---
+const renderMarkdown = (text) => {
+  if (!text) return ''
+  return text
+    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/^(.+)$/gm, (m) => m.startsWith('<') ? m : `<p>${m}</p>`)
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -331,6 +346,56 @@ const getContextResponse = (message) => {
   return responses[Math.floor(Math.random() * responses.length)]
 }
 
+// ── GHL SCOPE MAPPING ────────────────────────────────────────────────────────
+const ghlScope = ref(null)
+ const isMappingScope = ref(false)
+const scopeMapped = ref(false)
+
+const mapGHLScope = async () => {
+  if (!analysis.value?.id) return
+  isMappingScope.value = true
+  try {
+    const result = await api.mapScope(analysis.value, analysis.value.id)
+    ghlScope.value = result.scope
+    scopeMapped.value = true
+    // Save to localStorage for ProjectBuilder
+    const saved = JSON.parse(localStorage.getItem('last-analysis') || '{}')
+    localStorage.setItem('last-analysis', JSON.stringify({ ...saved, ghlScope: result.scope }))
+  } catch (err) {
+    console.warn('mapScope error:', err)
+    // Fallback mock scope
+    ghlScope.value = {
+      cliente: analysis.value.clientName || 'Cliente',
+      setup_subcuenta: 'completo',
+      pipelines: [{ nombre: 'Pipeline Principal', etapas: 7 }],
+      workflows: [{ nombre: 'LS01 Lead Capture', nodos: 6 }],
+      chatbots: [],
+      integraciones: 1,
+      landing_pages: [],
+      reportes: false,
+      sesiones_capacitacion: 1,
+      soporte: true
+    }
+    scopeMapped.value = true
+  } finally {
+    isMappingScope.value = false
+  }
+}
+
+const scopeCategories = computed(() => {
+  if (!ghlScope.value) return []
+  const s = ghlScope.value
+  const cats = []
+  if (s.pipelines?.length) cats.push({ key: 'pipelines', label: 'Pipelines', items: s.pipelines.map(p => `${p.nombre} (${p.etapas} etapas)`), color: '#8b5cf6' })
+  if (s.workflows?.length) cats.push({ key: 'workflows', label: 'Workflows', items: s.workflows.map(w => `${w.nombre} (${w.nodos} nodos)`), color: '#06b6d4' })
+  if (s.chatbots?.length) cats.push({ key: 'chatbots', label: 'Chatbots / AI', items: s.chatbots.map(c => `${c.nombre}${c.ia_avanzada ? ' · IA ✓' : ''}`), color: '#10b981' })
+  if (s.integraciones > 0) cats.push({ key: 'integraciones', label: 'Integraciones', items: [`${s.integraciones} integración(es) ext.`], color: '#f59e0b' })
+  if (s.landing_pages?.length) cats.push({ key: 'landings', label: 'Landing Pages', items: s.landing_pages.map(l => `${l.nombre} (${l.secciones} sec.)`), color: '#ef4444' })
+  if (s.reportes) cats.push({ key: 'reportes', label: 'Reportes', items: ['Dashboard de atribución'], color: '#a78bfa' })
+  if (s.soporte) cats.push({ key: 'soporte', label: 'Soporte', items: [`${s.sesiones_capacitacion || 1} sesión(es) + mantenimiento`], color: '#34d399' })
+  return cats
+})
+
 const scrollToBottom = () => {
   nextTick(() => {
     if (chatContainer.value) {
@@ -346,6 +411,18 @@ const getSeverityClass = (severity) => {
     low: 'severity-low'
   }[severity]
 }
+
+const resetAnalysis = () => {
+  localStorage.removeItem('last-analysis')
+  transcript.value = ''
+  analysis.value = { painPoints: [], complexity: 0, implementationType: '', objectives: [], roadmap: '', clientName: '' }
+  chatMessages.value = []
+  analysisComplete.value = false
+  isReady.value = false
+  attachedFiles.value = []
+  ghlScope.value = null
+  previousAnswers.value = []
+}
 </script>
 
 <template>
@@ -353,6 +430,12 @@ const getSeverityClass = (severity) => {
     <div class="glass-panel">
       <div class="panel-header">
         <h2><span>📝</span> Transcripción de Fathom</h2>
+        <button
+          v-if="analysisComplete"
+          class="btn btn-sm btn-ghost-sm"
+          @click="resetAnalysis"
+          title="Limpiar y empezar nuevo análisis"
+        >+ Nuevo</button>
       </div>
       <div class="panel-body">
         <textarea 
@@ -451,16 +534,65 @@ const getSeverityClass = (severity) => {
           </div>
         </div>
 
-        <div class="direct-actions">
-           <button 
-             class="btn btn-luxury btn-generate-direct" 
-             @click="finishChat"
-             :disabled="isGenerating"
-           >
+          <!-- GHL SCOPE MAPPING PANEL -->
+          <div class="scope-panel fadeIn">
+            <!-- Not yet mapped -->
+            <div v-if="!scopeMapped" class="scope-cta">
+              <div class="scope-cta-text">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/></svg>
+                <span>Extrae los módulos GHL detectados para ver el scope completo</span>
+              </div>
+              <button
+                class="btn btn-luxury btn-scope"
+                @click="mapGHLScope"
+                :disabled="isMappingScope"
+              >
+                <span v-if="isMappingScope" class="loading-spinner"></span>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                {{ isMappingScope ? 'Analizando scope...' : 'Mapear Scope GHL' }}
+              </button>
+            </div>
+
+            <!-- Scope mapped: show categories -->
+            <div v-else class="scope-categories-grid fadeIn">
+              <div class="scope-header">
+                <span class="scope-badge">GHL Scope Mapeado</span>
+                <button class="scope-remap" @click="scopeMapped = false; ghlScope = null" title="Volver a mapear">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                  Re-mapear
+                </button>
+              </div>
+              <div class="scope-categories">
+                <div
+                  v-for="cat in scopeCategories"
+                  :key="cat.key"
+                  class="scope-category"
+                >
+                  <div class="scope-cat-label" :style="{ color: cat.color }">{{ cat.label }}</div>
+                  <div class="scope-chips">
+                    <span
+                      v-for="(item, i) in cat.items"
+                      :key="i"
+                      class="scope-chip"
+                      :style="{ borderColor: cat.color + '44', background: cat.color + '11' }"
+                    >{{ item }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="direct-actions">
+             <button 
+               class="btn btn-luxury btn-generate-direct" 
+               @click="finishChat"
+               :disabled="isGenerating"
+             >
               <span v-if="isGenerating" class="loading-spinner"></span>
-              {{ isGenerating ? 'Generando...' : 'Generar Proyecto 🔥' }}
+              <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              {{ isGenerating ? 'Generando...' : 'Generar Proyecto' }}
             </button>
-        </div>
+          </div>
       </div>
       <div v-else class="empty-state">
         <div class="empty-icon">📊</div>
@@ -571,6 +703,9 @@ const getSeverityClass = (severity) => {
   padding: 24px 32px;
   border-bottom: 1px solid var(--glass-border);
   background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .panel-header h2 {
@@ -582,6 +717,24 @@ const getSeverityClass = (severity) => {
   align-items: center;
   gap: 12px;
 }
+
+.btn-ghost-sm {
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-ghost-sm:hover {
+  background: rgba(255,255,255,0.06);
+  color: white;
+  border-color: rgba(255,255,255,0.3);
+}
+
 
 .panel-body {
   flex: 1;
@@ -1235,8 +1388,8 @@ const getSeverityClass = (severity) => {
 }
 
 .direct-actions {
-  margin-top: auto;
-  padding-top: 20px;
+  margin-top: 16px;
+  padding-top: 16px;
 }
 
 .empty-icon {
@@ -1244,4 +1397,148 @@ const getSeverityClass = (severity) => {
   margin-bottom: 16px;
   opacity: 0.3;
 }
+
+/* ── GHL SCOPE PANEL ─────────────────────────────────────────────────────── */
+.scope-panel {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 4px;
+}
+
+.scope-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.scope-cta-text {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.scope-cta-text svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.btn-scope {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(6, 182, 212, 0.05));
+  border: 1px solid rgba(6, 182, 212, 0.3) !important;
+  color: var(--accent);
+  height: 42px;
+  padding: 0 20px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-scope:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.25), rgba(6, 182, 212, 0.1));
+  border-color: var(--accent) !important;
+  transform: translateY(-1px);
+}
+
+/* Scope mapped state */
+.scope-categories-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.scope-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.scope-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--success);
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+}
+
+.scope-remap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.scope-remap:hover {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.scope-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+
+
+
+.scope-cat-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+  opacity: 0.9;
+}
+
+.scope-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.scope-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  cursor: default;
+  transition: filter 0.2s;
+}
+
+.scope-chip:hover {
+  filter: brightness(1.2);
+}
+
+/* Button with SVG icon */
+.btn-generate-direct {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+}
 </style>
+

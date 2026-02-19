@@ -161,12 +161,25 @@ export const api = {
         });
     },
 
+    // Map GHL Scope (new - returns structured scope for cotizador)
+    mapScope: function (analysis, projectId) {
+        return fetch(`${API_BASE_URL}/api/map-scope`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ analysis, projectId, apiKey: this._getOpenAIKey() })
+        }).then(async r => {
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || 'Error mapeando scope GHL');
+            return data;
+        });
+    },
+
     // Generate quotation
-    quotation: function (analysis, projectStructure, projectId) {
+    quotation: function (analysis, projectStructure, projectId, ghlScope = null) {
         return fetch(`${API_BASE_URL}/api/quotation`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ analysis, projectStructure, projectId, apiKey: this._getOpenAIKey() })
+            body: JSON.stringify({ analysis, projectStructure, projectId, apiKey: this._getOpenAIKey(), ghlScope })
         }).then(async r => {
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || 'Error generando cotización');
